@@ -15,8 +15,11 @@ const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
+const LAST_STORY_KEY="vesper.ui.lastStoryId";
 const rememberTab=tab=>{try{localStorage.setItem(LAST_TAB_KEY,tab);}catch{}};
 const lastTab=()=>{try{return localStorage.getItem(LAST_TAB_KEY)||"library";}catch{return "library";}};
+const rememberStory=storyId=>{try{if(storyId)localStorage.setItem(LAST_STORY_KEY,storyId);}catch{}};
+const lastStoryId=()=>{try{return localStorage.getItem(LAST_STORY_KEY)||"";}catch{return "";}};
 const QUERY_LIMIT=1000;
 function localDayKey(date=new Date()){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,"0"),String(date.getDate()).padStart(2,"0")].join("-");}
 function usageDayKey(entry){const d=new Date(entry.createdAt);return Number.isNaN(d.getTime())?"":localDayKey(d);}
@@ -412,7 +415,10 @@ function render(){
   const tab=lastTab();
   if(tab==="library"){showLibrary();return;}
   if(!vault.stories.length){showLibrary();return;}
-  const s=vault.stories[0],c=vault.chats.find(x=>x.storyId===s.id);activeStoryId=s.id;activeChatId=c?.id||null;
+  const preferredId=lastStoryId();
+  const s=vault.stories.find(x=>x.id===preferredId)||vault.stories[0];
+  const c=chooseInitialChat(vault,s.id);
+  activeStoryId=s.id;activeChatId=c?.id||null;
   if(tab==="memory"){showDataView("memory");return;}
   if(tab==="milestones"){showDataView("milestones");return;}
   renderStory(s.id,c?.id);
@@ -513,6 +519,6 @@ function jumpMessagesToLatest(smooth=false){
 }
 function updateScrollBottomButton(){const scroller=$("messages"),b=$("scrollBottomButton");if(!scroller||!b)return;const distance=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight;b.hidden=distance<80;}
 function bindMessageScroller(){const scroller=$("messages");if(!scroller||scroller.dataset.bound==="1")return;scroller.dataset.bound="1";scroller.addEventListener("scroll",updateScrollBottomButton,{passive:true});}
-function renderStory(storyId,chatId){rememberTab("story");renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId){rememberTab("story");rememberStory(storyId);renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||"")))).sort((x,y)=>{const xo=Number(x.ordinal),yo=Number(y.ordinal);if(Number.isFinite(xo)&&Number.isFinite(yo)&&xo!==yo)return xo-yo;return String(x.createdAt||"").localeCompare(String(y.createdAt||""));});$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=rows.at(-1);if(!sending&&!rows.length&&s?.openingScene){retryMessageId=null;retryOpeningStoryId=s.id;showRetry(true,"Generate Opening");showStatus("This story has no opener yet.","notice");}else if(!sending&&latest?.role==="user"){retryOpeningStoryId=null;retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){if(retryOpeningStoryId===storyId)retryOpeningStoryId=null;showRetry(false);}bindMessageScroller();jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);setTimeout(()=>{jumpMessagesToLatest(false);updateScrollBottomButton();},80);});});}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});
