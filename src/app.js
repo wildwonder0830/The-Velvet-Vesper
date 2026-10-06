@@ -306,6 +306,16 @@ async function sendTurn(event){
   const composerDraft=$("messageInput").value;
   const text=composerDraft.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
   if(!text||!story||!chat)return;
+  const commandMatch=text.match(/^\/(ooc|continue|elaborate)\b\s*([\s\S]*)$/i);
+  if(commandMatch){
+    $("messageInput").value="";
+    const name=commandMatch[1].toLowerCase(),args=commandMatch[2].trim();
+    if(name==="continue"||name==="elaborate"){await runStoryTool(name);return;}
+    if(name==="ooc"){
+      if(!args){showStatus("Add an instruction after /ooc.","notice");return;}
+      await generateToolReply({story,chat,instruction:`[OOC: ${args}]`,label:"Applying OOC instruction…"});return;
+    }
+  }
   const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok){showStatus(runnable.reason,"error");return;}
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
@@ -402,12 +412,29 @@ async function editUserMessage(message){
 async function regenerateAssistantMessage(message){
   if(sending)return;
   const story=vault.stories.find(s=>s.id===message.storyId),chat=vault.chats.find(c=>c.id===message.chatId);if(!story||!chat)return;
-  const later=vault.messages.filter(m=>m.chatId===message.chatId&&(m.ordinal??0)>(message.ordinal??0));
-  if(later.length&&!window.confirm("Regenerate this reply and remove the later messages in this chat?"))return;
-  vault.messages=vault.messages.filter(m=>m.chatId!==message.chatId||(m.ordinal??0)<(message.ordinal??0));await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
-  const previous=[...vault.messages].filter(m=>m.chatId===chat.id&&m.role==="user").sort((x,y)=>(x.ordinal??0)-(y.ordinal??0)).at(-1);
-  if(!previous){showStatus("There is no user post to regenerate from.","error");return;}
-  await generateReplyForMessage({message:previous,story,chat});
+  const later=vault.messages.filter(m=>m.chatId===message.chatId&&(Number(m.ordinal)||0)>(Number(message.ordinal)||0));
+  if(later.length&&!window.confirm("Regenerate this reply and remove the later messages in this chat only if the replacement succeeds?"))return;
+  const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
+  if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
+  if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
+  const targetOrdinal=Number.isFinite(Number(message.ordinal))?Number(message.ordinal):0;
+  const tempVault=structuredClone(vault);
+  tempVault.messages=tempVault.messages.filter(m=>m.chatId!==chat.id||(Number(m.ordinal)||0)<targetOrdinal);
+  const opening=isOpeningMessage(message);
+  if(!opening&&!tempVault.messages.some(m=>m.chatId===chat.id&&m.role==="user")){showStatus("There is no user post to regenerate from.","error");return;}
+  sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus(opening?"Regenerating opening…":"Regenerating reply…","working");
+  try{
+    const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
+    const result=await runTurn({vault:tempVault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},opening,temperature:story.settings?.temperature??0.9,maxTokens:opening?3000:(story.settings?.maxTokens??1200),repairAttempts:opening?4:2,signal:activeGenerationController.signal});
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
+    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a valid replacement.");
+    vault.messages=vault.messages.filter(m=>m.chatId!==chat.id||(Number(m.ordinal)||0)<targetOrdinal);
+    vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal:targetOrdinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,regeneratedFromId:message.id});
+    await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);showStatus("Reply regenerated.","notice");
+  }catch(error){
+    await saveVaultAtomic(db,vault).catch(()=>{});
+    showStatus(error?.name==="AbortError"?"Regeneration stopped. Original messages kept.":`Regeneration failed: ${error.message} Original messages kept.`,"error");
+  }finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
 }
 function renderMessage(node,message){
   node.replaceChildren();
