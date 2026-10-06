@@ -107,7 +107,7 @@ async function createStarterStory(){
         vault.messages.push({id:makeId("message"),storyId,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
         await saveVaultAtomic(db,vault);renderStory(storyId,chatId);showStatus(result.repaired?"Opening repaired before display.":"","notice");
       }catch(error){showStatus(`Story created, but opening generation failed: ${error.message}`,"error");}
-      finally{sending=false;activeGenerationController=null;$("sendButton").disabled=false;$("sendButton").hidden=false;$("stopButton").hidden=true;$("writingState").hidden=true;}
+      finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
     }else showStatus("The Blackthorn Prophecy is ready. Add your OpenRouter key and model in Settings, then begin when ready.","notice");
   }else showStatus("Story created. Cast identities are isolated and ready for canon.","notice");
 }
@@ -155,11 +155,17 @@ async function retryFailedTurn(){
   await generateReplyForMessage({message,story,chat});
 }
 function showRetry(show,label="Retry Reply"){const button=$("retryButton");if(button){button.hidden=!show;button.textContent=label;}}
+function setGenerationUi(active){
+  const send=$("sendButton"),stop=$("stopButton"),writing=$("writingState");
+  if(send){send.disabled=active;send.hidden=active;}
+  if(stop)stop.hidden=!active;
+  if(writing)writing.hidden=!active;
+}
 async function generateReplyForMessage({message,story,chat}){
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
-  sending=true;$("sendButton").disabled=true;$("sendButton").hidden=true;showRetry(false);activeGenerationController=new AbortController();$("stopButton").hidden=false;$("writingState").hidden=false;showStatus("Vesper is writing…","working");
+  sending=true;setGenerationUi(true);showRetry(false);activeGenerationController=new AbortController();showStatus("Vesper is writing…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
@@ -167,7 +173,7 @@ async function generateReplyForMessage({message,story,chat}){
     if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Vesper couldn't produce a valid reply.");
     const ordinal=Math.max(-1,...vault.messages.filter(m=>m.chatId===chat.id).map(m=>Number(m.ordinal)??-1))+1;
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
-    retryMessageId=null;await saveVaultAtomic(db,vault);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);const composer=$("messageInput");composer.hidden=false;composer.focus({preventScroll:true});
+    retryMessageId=null;await saveVaultAtomic(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);const composer=$("messageInput");composer.hidden=false;composer.focus({preventScroll:true});
   }catch(error){retryMessageId=message.id;showStatus(`Generation failed: ${error.message}`,"error");showRetry(true);}
   finally{sending=false;activeGenerationController=null;$("sendButton").disabled=false;$("sendButton").hidden=false;$("stopButton").hidden=true;$("writingState").hidden=true;}
 }
@@ -306,6 +312,6 @@ function renderMessage(node,message){
 function jumpMessagesToLatest(smooth=false){const scroller=$("messages");if(!scroller)return;scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth?"smooth":"auto"});const b=$("scrollBottomButton");if(b)b.hidden=true;}
 function updateScrollBottomButton(){const scroller=$("messages"),b=$("scrollBottomButton");if(!scroller||!b)return;const distance=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight;b.hidden=distance<80;}
 function bindMessageScroller(){const scroller=$("messages");if(!scroller||scroller.dataset.bound==="1")return;scroller.dataset.bound="1";scroller.addEventListener("scroll",updateScrollBottomButton,{passive:true});}
-function renderStory(storyId,chatId){rememberTab("story");renderQueryMeter();activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId){rememberTab("story");renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=[...rows].sort((x,y)=>(Number(y.ordinal)??0)-(Number(x.ordinal)??0))[0];if(!sending&&latest?.role==="user"){retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){showRetry(false);}bindMessageScroller();jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);updateScrollBottomButton();});});}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});
