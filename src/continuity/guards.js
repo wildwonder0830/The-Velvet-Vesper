@@ -12,7 +12,7 @@ export function continuityPrompt({ relationship, milestones = [], facts = [], kn
     guards: CONTINUITY_GUARDS,
     relationship: relationship || null,
     confirmedMilestones: milestones.filter(m => m.status === "confirmed"),
-    confirmedFacts: facts.filter(f => f.status === "confirmed"),
+    confirmedFacts: facts.filter(f => f.status === "confirmed" || f.status === "active"),
     knowledge
   };
 }
