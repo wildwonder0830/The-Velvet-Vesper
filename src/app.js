@@ -8,6 +8,7 @@ import { runTurn } from "./chat/turn-engine.js";
 import { setDeviceSecret, getDeviceSecret, DEVICE_SECRET_NAMES } from "./settings/secret-store.js";
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
 import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/story-selection.js";
+import { recordUsage } from "./usage/usage-ledger.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
@@ -15,6 +16,12 @@ let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null,
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const rememberTab=tab=>{try{localStorage.setItem(LAST_TAB_KEY,tab);}catch{}};
 const lastTab=()=>{try{return localStorage.getItem(LAST_TAB_KEY)||"library";}catch{return "library";}};
+const QUERY_LIMIT=1000;
+function localDayKey(date=new Date()){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,"0"),String(date.getDate()).padStart(2,"0")].join("-");}
+function usageDayKey(entry){const d=new Date(entry.createdAt);return Number.isNaN(d.getTime())?"":localDayKey(d);}
+function queryCountToday(){return (vault?.usageEntries||[]).filter(e=>usageDayKey(e)===localDayKey()).length;}
+function renderQueryMeter(){const el=$("queryCount");if(el)el.textContent=`${queryCountToday().toLocaleString()} / ${QUERY_LIMIT.toLocaleString()}`;}
+function recordTurnUsage(result,{storyId,chatId,model}){const usages=result?.usage||[];for(const usage of usages){vault.usageEntries.push(recordUsage({storyId,chatId,model,promptTokens:usage?.prompt_tokens||0,completionTokens:usage?.completion_tokens||0,cost:null}));}renderQueryMeter();}
 
 async function boot() {
   db = await openVesperDb(); vault = await loadVault(db); bindUi(); render();
@@ -83,6 +90,7 @@ async function createStarterStory(){
       try{
         const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
         const result=await runTurn({vault,storyId,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:3000});
+        recordTurnUsage(result,{storyId,chatId,model});
         if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Opening was blocked by a Vesper hard rule.");
         vault.messages.push({id:makeId("message"),storyId,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
         await saveVaultAtomic(db,vault);renderStory(storyId,chatId);showStatus(result.repaired?"Opening repaired before display.":"","notice");
@@ -129,6 +137,7 @@ async function sendTurn(event){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},maxTokens:1200});
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
     if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Reply was blocked by a Vesper hard rule.");
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal:ordinal+1,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     await saveVaultAtomic(db,vault);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);
@@ -159,7 +168,7 @@ async function confirmDeleteStory(){
   await saveVaultAtomic(db,vault);closeDeleteStory();showLibrary();
 }
 function showLibrary(){
-  rememberTab("library");
+  rememberTab("library");renderQueryMeter();
   $("dataView").hidden=true;$("chatView").hidden=true;$("emptyState").hidden=false;
   const library=$("storyLibrary");library.replaceChildren();
   const choices=listStoryChoices(vault);
@@ -227,6 +236,6 @@ function renderMessage(node,message){
     node.append(block);
   }
 }
-function renderStory(storyId,chatId){rememberTab("story");activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId){rememberTab("story");renderQueryMeter();activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));$("messages").scrollTop=$("messages").scrollHeight;}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});
