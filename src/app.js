@@ -4,6 +4,7 @@ import { makeId } from "./schema.js";
 import { runTurn } from "./chat/turn-engine.js";
 import { setDeviceSecret, getDeviceSecret, DEVICE_SECRET_NAMES } from "./settings/secret-store.js";
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
+import { storyIsRunnable } from "./library/story-selection.js";
 
 const $ = id => document.getElementById(id);
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, sending = false;
@@ -48,6 +49,7 @@ async function sendTurn(event){
   event.preventDefault(); if(sending)return;
   const text=$("messageInput").value.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
   if(!text||!story||!chat)return;
+  const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok){showStatus(runnable.reason,"error");return;}
   const now=new Date().toISOString(),ordinal=vault.messages.filter(m=>m.chatId===chat.id).length;
   vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now});
   $("messageInput").value="";await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
