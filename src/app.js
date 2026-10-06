@@ -145,7 +145,19 @@ async function runStoryTool(kind){
   $("composer").requestSubmit();input.value=prior;
 }
 function insertCommand(command){const input=$("messageInput"),start=input.selectionStart??input.value.length,end=input.selectionEnd??start,before=input.value.slice(0,start),after=input.value.slice(end),needsSpace=before&&!/\s$/.test(before);input.value=before+(needsSpace?" ":"")+command+after;const pos=(before+(needsSpace?" ":"")+command).length;input.focus({preventScroll:true});input.setSelectionRange(pos,pos);}
-function stopGeneration(){if(activeGenerationController&&!activeGenerationController.signal.aborted){activeGenerationController.abort();showStatus("Generation stopped.","notice");}}
+function stopGeneration(){
+  if(activeGenerationController&&!activeGenerationController.signal.aborted){
+    activeGenerationController.abort();
+    showStatus("Generation stopped.","notice");
+  }else{
+    // Recover from a stale mobile UI where generation already finished but
+    // Stop/Writing remained visible.
+    sending=false;
+    activeGenerationController=null;
+    setGenerationUi(false);
+    showStatus("Generation was already finished. Composer restored.","notice");
+  }
+}
 async function regenerateLatestReply(){if(sending)return;const latest=[...vault.messages].filter(m=>m.chatId===activeChatId&&m.role==="assistant").sort((a,b)=>(b.ordinal??0)-(a.ordinal??0))[0];if(!latest){showStatus("There is no Vesper reply to regenerate yet.","notice");return;}await regenerateAssistantMessage(latest);}
 async function retryFailedTurn(){
   if(sending||!retryMessageId)return;
