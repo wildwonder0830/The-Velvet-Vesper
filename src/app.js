@@ -17,7 +17,7 @@ async function boot() {
   db = await openVesperDb(); vault = await loadVault(db); bindUi(); render();
 }
 function bindUi() {
-  $("importButton").onclick=()=>$("importFile").click(); $("importFile").onchange=handleImportFile; $("menuButton").onclick=showLibrary; $("libraryNavButton").onclick=showLibrary; $("storyNavButton").onclick=showActiveStory; $("memoryNavButton").onclick=()=>showDataView("memory"); $("milestonesNavButton").onclick=()=>showDataView("milestones"); $("dataBackButton").onclick=showActiveStory;
+  $("importButton").onclick=()=>$("importFile").click(); $("importFile").onchange=handleImportFile; $("libraryNavButton").onclick=showLibrary; $("storyNavButton").onclick=showActiveStory; $("memoryNavButton").onclick=()=>showDataView("memory"); $("milestonesNavButton").onclick=()=>showDataView("milestones"); $("dataBackButton").onclick=showActiveStory;
   $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
@@ -172,7 +172,7 @@ function showLibrary(){
     const cta=document.createElement("span");cta.className="library-cta";cta.textContent="Open story →";
     open.append(title,castLine,counts,cta);
     open.onclick=()=>{const chat=chooseInitialChat(vault,choice.storyId);renderStory(choice.storyId,chat?.id);};
-    const del=document.createElement("button");del.type="button";del.className="library-delete";del.textContent="Delete";del.setAttribute("aria-label","Delete "+choice.title);del.onclick=()=>openDeleteStory(choice.storyId);
+    const del=document.createElement("button");del.type="button";del.className="library-delete";del.innerHTML="&#128465;&#65039;";del.title="Delete story";del.setAttribute("aria-label","Delete "+choice.title);del.onclick=()=>openDeleteStory(choice.storyId);
     card.append(open,del);library.append(card);
   }
   ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));$("libraryNavButton").classList.add("active");
