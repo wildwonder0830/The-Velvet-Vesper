@@ -1,0 +1,37 @@
+import { validateVault } from "../schema.js";
+
+const SECRET_KEYS = new Set([
+  "apiKey", "api_key", "openRouterKey", "openrouterKey", "authorization", "token", "secret"
+]);
+
+function stripSecrets(value) {
+  if (Array.isArray(value)) return value.map(stripSecrets);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !SECRET_KEYS.has(key))
+      .map(([key, child]) => [key, stripSecrets(child)])
+  );
+}
+
+export function buildPortableBackup(vault, now = new Date().toISOString()) {
+  const validation = validateVault(vault);
+  if (!validation.ok) throw new Error(`Cannot export invalid vault: ${validation.errors.join(" ")}`);
+
+  const clean = stripSecrets(structuredClone(vault));
+  clean.exportedAt = now;
+  clean.backupSchema = 1;
+  clean.secretsExcluded = true;
+  return clean;
+}
+
+export function serializePortableBackup(vault) {
+  return JSON.stringify(buildPortableBackup(vault), null, 2);
+}
+
+export function parseVesperBackup(text) {
+  const parsed = JSON.parse(text);
+  const validation = validateVault(parsed);
+  if (!validation.ok) throw new Error(`Invalid Vesper backup: ${validation.errors.join(" ")}`);
+  return parsed;
+}
