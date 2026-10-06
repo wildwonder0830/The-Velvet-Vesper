@@ -10,7 +10,7 @@ import { seedDefaultGreenLines } from "./rules/preference-lines.js";
 import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/story-selection.js";
 
 const $ = id => document.getElementById(id);
-const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b-20260604:free";
+const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, sending = false;
 
 async function boot() {
