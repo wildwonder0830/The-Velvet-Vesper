@@ -3,6 +3,7 @@ import { previewImport, prepareImport, commitPreparedImport } from "./migration/
 import { makeId } from "./schema.js";
 import { createMemory } from "./memory/memory-manager.js";
 import { recordKnowledge } from "./knowledge/ledger.js";
+import { createSceneState } from "./scene/scene-state.js";
 import { runTurn } from "./chat/turn-engine.js";
 import { setDeviceSecret, getDeviceSecret, DEVICE_SECRET_NAMES } from "./settings/secret-store.js";
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
@@ -63,6 +64,7 @@ async function createStarterStory(){
         recordKnowledge({storyId,knowerId:twin.id,subjectId:personaId,factKey:"opening-witness",value:"Directly witnessed the favored half-sister deliberately cause Amanda to fall.",learnedAt:now},now)
       );
     }
+    vault.sceneStates.push(createSceneState({storyId,chatId,location:"Formal pack gathering - mate and future Luna announcement",time:"Opening night",participantIds:[personaId,...twins.map(x=>x.id)],tags:["formal-gathering","public-announcement","future-luna","family-politics","opening-scene"]},now));
   }
   vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);showStatus(blackthorn?"The Blackthorn Prophecy is ready. The wolves are free.":"Story created. Cast identities are isolated and ready for canon.","notice");
 }
