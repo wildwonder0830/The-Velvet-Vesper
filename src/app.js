@@ -34,7 +34,7 @@ function bindUi() {
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
   $("elaborateButton").onclick=()=>runStoryTool("elaborate");
-  $("myTurnButton").onclick=()=>runStoryTool("myturn"); on("oocButton","click",()=>insertCommand("/ooc ")); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
+  on("oocButton","click",()=>insertCommand("/ooc ")); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory; on("setupTemplate","change",applyStoryTemplate);
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
   $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("replaceKeyButton","click",beginKeyReplacement); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
@@ -165,8 +165,7 @@ async function runStoryTool(kind){
     continue:"[OOC: Continue directly from the exact point where the previous response stopped. If it ended mid-sentence, complete that sentence first. Do not repeat or summarize prior prose. Continue the scene naturally and stop on a complete narrative beat.]",
     elaborate:"[OOC: Elaborate the immediately preceding assistant response with richer sensory detail, character-specific behavior, dialogue, and atmosphere while preserving every established event and fact. Do not advance past its endpoint more than necessary.]"
   };
-  if(kind==="myturn"){await generateMyTurnDraft();return;}
-  const instruction=prompts[kind];if(!instruction)return;
+   const instruction=prompts[kind];if(!instruction)return;
   const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);if(!story||!chat)return;
   await generateToolReply({story,chat,instruction,label:kind==="continue"?"Continuing…":"Elaborating…"});
 }
@@ -185,32 +184,6 @@ async function generateToolReply({story,chat,instruction,label}){
     await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
   }catch(error){showStatus(error?.name==="AbortError"?"Generation stopped.":`Generation failed: ${error.message}`,"error");}
   finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
-}
-async function generateMyTurnDraft(){
-  if(sending)return;
-  const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
-  if(!story||!chat)return;
-  const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
-  if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
-  if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
-  const input=$("messageInput"),prior=input.value;
-  sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus("Drafting your turn…","working");
-  try{
-    const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const instruction="[OOC TOOL — MY TURN: Draft Amanda's next possible roleplay turn for the user to review and edit. Write ONLY Amanda's proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond Amanda's proposed response. This is a draft only and must not be treated as sent canon until the user submits it.]";
-    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
-    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
-    if(result.blocked||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable draft.");
-    input.value=result.text.trim();
-    input.focus({preventScroll:true});
-    input.setSelectionRange(input.value.length,input.value.length);
-    showStatus("Draft ready. Edit anything you want, then Send when it feels like you.","notice");
-  }catch(error){
-    input.value=prior;
-    showStatus(error?.name==="AbortError"?"Drafting stopped.":`Draft failed: ${error.message}`,"error");
-  }finally{
-    sending=false;activeGenerationController=null;setGenerationUi(false);
-  }
 }
 function nextMessageOrdinal(chatId){const values=vault.messages.filter(m=>m.chatId===chatId).map(m=>Number(m.ordinal)).filter(Number.isFinite);return (values.length?Math.max(...values):-1)+1;}
 function insertCommand(command){const input=$("messageInput"),start=input.selectionStart??input.value.length,end=input.selectionEnd??start,before=input.value.slice(0,start),after=input.value.slice(end),needsSpace=before&&!/\s$/.test(before);input.value=before+(needsSpace?" ":"")+command+after;const pos=(before+(needsSpace?" ":"")+command).length;input.focus({preventScroll:true});input.setSelectionRange(pos,pos);}
@@ -437,13 +410,43 @@ async function regenerateAssistantMessage(message){
     showStatus(error?.name==="AbortError"?"Regeneration stopped. Original messages kept.":`Regeneration failed: ${error.message} Original messages kept.`,"error");
   }finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
 }
+function messageAndDescendants(message){
+  const targetOrdinal=Number(message.ordinal);
+  return vault.messages.filter(m=>m.chatId===message.chatId&&(Number.isFinite(targetOrdinal)?Number(m.ordinal)>=targetOrdinal:m.id===message.id));
+}
+function purgeDerivedFromMessages(messageIds){
+  const ids=new Set(messageIds);
+  vault.memoryEntries=(vault.memoryEntries||[]).filter(entry=>!(entry.sourceMessageIds||[]).some(id=>ids.has(id)));
+  vault.milestones=(vault.milestones||[]).filter(entry=>!entry.sourceMessageId||!ids.has(entry.sourceMessageId));
+  vault.knowledgeEntries=(vault.knowledgeEntries||[]).filter(entry=>!entry.sourceMessageId||!ids.has(entry.sourceMessageId));
+  vault.statEvents=(vault.statEvents||[]).filter(entry=>!entry.sourceMessageId||!ids.has(entry.sourceMessageId));
+}
+async function deleteMessageBranch(message){
+  if(sending){showStatus("Wait for Vesper to finish writing before deleting a post.","notice");return;}
+  const doomed=messageAndDescendants(message);
+  if(!doomed.length)return;
+  const laterCount=Math.max(0,doomed.length-1);
+  const prompt=laterCount
+    ? `Delete this post and the ${laterCount} later post${laterCount===1?"":"s"} that depend on it? This removes them from Vesper's active story context.`
+    : "Delete this post from the story? Vesper will no longer see it in chat context.";
+  if(!window.confirm(prompt))return;
+  const doomedIds=doomed.map(m=>m.id);
+  const doomedSet=new Set(doomedIds);
+  vault.messages=vault.messages.filter(m=>!doomedSet.has(m.id));
+  purgeDerivedFromMessages(doomedIds);
+  retryMessageId=null;retryOpeningStoryId=null;
+  vault.updatedAt=new Date().toISOString();
+  await saveVaultAtomic(db,vault);
+  renderStory(message.storyId,message.chatId);
+  showStatus("Post removed from the story context.","notice");
+}
 function renderMessage(node,message){
   node.replaceChildren();
   const text=String(message.text||"");
   if(message.role==="user"){
     const body=document.createElement("div");body.className="user-message-text";body.textContent=text;node.append(body);
     const controls=document.createElement("div");controls.className="message-controls";
-    const edit=document.createElement("button");edit.type="button";edit.className="message-edit";edit.textContent="Edit";edit.setAttribute("aria-label","Edit this post");edit.onclick=()=>editUserMessage(message);controls.append(edit);
+    const edit=document.createElement("button");edit.type="button";edit.className="message-edit";edit.textContent="Edit";edit.setAttribute("aria-label","Edit this post");edit.onclick=()=>editUserMessage(message);controls.append(edit);const del=document.createElement("button");del.type="button";del.className="message-edit message-delete";del.textContent="Delete";del.setAttribute("aria-label","Delete this post and dependent later posts");del.onclick=()=>deleteMessageBranch(message);controls.append(del);
     if(message.editedAt){const tag=document.createElement("small");tag.className="edited-tag";tag.textContent="edited";controls.append(tag);}
     node.append(controls);return;
   }
@@ -460,7 +463,7 @@ function renderMessage(node,message){
     if(last<paragraph.length)block.append(document.createTextNode(paragraph.slice(last)));
     node.append(block);
   }
-  const controls=document.createElement("div");controls.className="message-controls assistant-controls";const regen=document.createElement("button");regen.type="button";regen.className="message-edit";regen.textContent="Regenerate";regen.onclick=()=>regenerateAssistantMessage(message);controls.append(regen);node.append(controls);
+  const controls=document.createElement("div");controls.className="message-controls assistant-controls";const regen=document.createElement("button");regen.type="button";regen.className="message-edit";regen.textContent="Regenerate";regen.onclick=()=>regenerateAssistantMessage(message);controls.append(regen);const del=document.createElement("button");del.type="button";del.className="message-edit message-delete";del.textContent="Delete";del.setAttribute("aria-label","Delete this post and dependent later posts");del.onclick=()=>deleteMessageBranch(message);controls.append(del);node.append(controls);
 }
 function jumpMessagesToLatest(smooth=false){
   const scroller=$("messages");if(!scroller)return;
