@@ -50,16 +50,17 @@ async function sendTurn(event){
   const text=$("messageInput").value.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
   if(!text||!story||!chat)return;
   const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok){showStatus(runnable.reason,"error");return;}
+  const model=story.settings?.model||localStorage.getItem("vesper.model");
+  if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
+  if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
   const now=new Date().toISOString(),ordinal=vault.messages.filter(m=>m.chatId===chat.id).length;
   vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now});
   $("messageInput").value="";await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
-  const model=story.settings?.model||localStorage.getItem("vesper.model");
-  if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   sending=true;$("sendButton").disabled=true;showStatus("Vesper is writing…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{}});
-    if(!result.validation.ok) throw new Error("Reply was blocked by a Vesper hard rule.");
+    if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Reply was blocked by a Vesper hard rule.");
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal:ordinal+1,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     await saveVaultAtomic(db,vault);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);
   }catch(error){showStatus(error.message,"error");}
