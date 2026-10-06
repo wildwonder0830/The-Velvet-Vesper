@@ -255,6 +255,16 @@ async function editUserMessage(message){
   message.text=text;message.editedAt=new Date().toISOString();vault.updatedAt=message.editedAt;
   await saveVaultAtomic(db,vault);renderStory(message.storyId,message.chatId);showStatus("Post edited. Vesper will use the corrected version from now on.","notice");
 }
+async function regenerateAssistantMessage(message){
+  if(sending)return;
+  const story=vault.stories.find(s=>s.id===message.storyId),chat=vault.chats.find(c=>c.id===message.chatId);if(!story||!chat)return;
+  const later=vault.messages.filter(m=>m.chatId===message.chatId&&(m.ordinal??0)>(message.ordinal??0));
+  if(later.length&&!window.confirm("Regenerate this reply and remove the later messages in this chat?"))return;
+  vault.messages=vault.messages.filter(m=>m.chatId!==message.chatId||(m.ordinal??0)<(message.ordinal??0));await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
+  const previous=[...vault.messages].filter(m=>m.chatId===chat.id&&m.role==="user").sort((x,y)=>(x.ordinal??0)-(y.ordinal??0)).at(-1);
+  if(!previous){showStatus("There is no user post to regenerate from.","error");return;}
+  await generateReplyForMessage({message:previous,story,chat});
+}
 function renderMessage(node,message){
   node.replaceChildren();
   const text=String(message.text||"");
@@ -278,6 +288,7 @@ function renderMessage(node,message){
     if(last<paragraph.length)block.append(document.createTextNode(paragraph.slice(last)));
     node.append(block);
   }
+  const controls=document.createElement("div");controls.className="message-controls assistant-controls";const regen=document.createElement("button");regen.type="button";regen.className="message-edit";regen.textContent="Regenerate";regen.onclick=()=>regenerateAssistantMessage(message);controls.append(regen);node.append(controls);
 }
 function renderStory(storyId,chatId){rememberTab("story");renderQueryMeter();activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));$("messages").scrollTop=$("messages").scrollHeight;}
