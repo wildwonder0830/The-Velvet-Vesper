@@ -136,7 +136,8 @@ async function runStoryTool(kind){
 }
 async function sendTurn(event){
   event.preventDefault(); if(sending)return;
-  const text=$("messageInput").value.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
+  const composerDraft=$("messageInput").value;
+  const text=composerDraft.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
   if(!text||!story||!chat)return;
   const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok){showStatus(runnable.reason,"error");return;}
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
@@ -144,7 +145,7 @@ async function sendTurn(event){
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
   const now=new Date().toISOString(),ordinal=vault.messages.filter(m=>m.chatId===chat.id).length;
   vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now});
-  $("messageInput").value="";await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
+  $("messageInput").value="";await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);$("messageInput").focus({preventScroll:true});
   sending=true;$("sendButton").disabled=true;showStatus("Vesper is writing…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
@@ -152,7 +153,7 @@ async function sendTurn(event){
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
     if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Reply was blocked by a Vesper hard rule.");
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal:ordinal+1,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
-    await saveVaultAtomic(db,vault);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);
+    await saveVaultAtomic(db,vault);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);const composer=$("messageInput");composer.hidden=false;composer.focus({preventScroll:true});
   }catch(error){showStatus(error.message,"error");}
   finally{sending=false;$("sendButton").disabled=false;}
 }
