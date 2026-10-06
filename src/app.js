@@ -14,7 +14,8 @@ async function boot() {
 }
 function bindUi() {
   $("importButton").onclick=()=>$("importFile").click(); $("importFile").onchange=handleImportFile;
-  $("newStoryButton").onclick=createStarterStory; $("composer").onsubmit=sendTurn;
+  $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
+  $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory;
   $("settingsButton").onclick=openSettings; $("settingsClose").onclick=()=>$("settingsPanel").hidden=true;
   $("saveSettings").onclick=saveSettings; $("storyPicker").onchange=changeStory;
 }
@@ -27,10 +28,20 @@ async function handleImportFile(e){
   }catch(error){$("importPreview").hidden=false;$("importPreview").textContent=`Import error: ${error.message}`;}
 }
 async function confirmImport(){if(!preparedImport)return;await commitPreparedImport(db,preparedImport);vault=await loadVault(db);preparedImport=null;render();}
+function openStorySetup(){$("storySetupPanel").hidden=false;}
+function closeStorySetup(){$("storySetupPanel").hidden=true;}
 async function createStarterStory(){
-  const now=new Date().toISOString(),storyId=makeId("story"),chatId=makeId("chat");
-  vault.stories.push({id:storyId,title:"New Vesper Story",characterIds:[],personaId:null,settings:{model:""},createdAt:now,updatedAt:now});
-  vault.chats.push({id:chatId,storyId,title:"Main Story",createdAt:now,updatedAt:now});vault.updatedAt=now;await saveVaultAtomic(db,vault);renderStory(storyId,chatId);
+  const title=$("setupStoryTitle").value.trim()||"Untitled Vesper Story";
+  const personaName=$("setupPersonaName").value.trim();
+  const characterNames=[$("setupCharacterOne").value.trim(),$("setupCharacterTwo").value.trim()].filter(Boolean);
+  if(!personaName||!characterNames.length){return;}
+  const now=new Date().toISOString(),storyId=makeId("story"),chatId=makeId("chat"),personaId=makeId("persona");
+  const persona={id:personaId,name:personaName,storyId,profile:{age:24},directives:["Never narrate this persona's dialogue, actions, thoughts, feelings, choices, or reactions."],createdAt:now,updatedAt:now};
+  const characters=characterNames.map((name,index)=>({id:makeId("character"),name,storyId,profile:{age:28,adult:true},directives:["Maintain an individual voice, memory, knowledge state, and relationship with the persona.","Never merge identity, memories, actions, dialogue, or milestones with another character."],castOrder:index,createdAt:now,updatedAt:now}));
+  vault.personas.push(persona);vault.characters.push(...characters);
+  vault.stories.push({id:storyId,title,characterIds:characters.map(c=>c.id),primaryCharacterId:characters[0].id,personaId,settings:{model:localStorage.getItem("vesper.model")||""},createdAt:now,updatedAt:now});
+  vault.chats.push({id:chatId,storyId,title:"Main Story",createdAt:now,updatedAt:now});
+  vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);showStatus("Story created. Cast identities are isolated and ready for canon.","notice");
 }
 function openSettings(){
   const story=vault.stories.find(s=>s.id===activeStoryId)||vault.stories[0];
