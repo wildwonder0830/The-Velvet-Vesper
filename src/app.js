@@ -29,7 +29,7 @@ async function boot() {
 }
 function bindUi() {
   const on=(id,event,handler)=>{const el=$(id);if(el)el.addEventListener(event,handler);};
-  on("importButton","click",()=>$("importFile")?.click()); on("importFile","change",handleImportFile); on("libraryNavButton","click",showLibrary); on("storyNavButton","click",showActiveStory); on("memoryNavButton","click",()=>showDataView("memory")); on("milestonesNavButton","click",()=>showDataView("milestones")); on("dataBackButton","click",showActiveStory);
+  on("importButton","click",()=>$("importFile")?.click()); on("importFile","change",handleImportFile); on("relationshipPill","click",showRelationshipStatus); on("libraryNavButton","click",showLibrary); on("storyNavButton","click",showActiveStory); on("memoryNavButton","click",()=>showDataView("memory")); on("milestonesNavButton","click",()=>showDataView("milestones")); on("dataBackButton","click",showActiveStory);
   $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
@@ -140,7 +140,7 @@ const VESPER_HARD_LIMITS=["Anal sex or anal penetration","Breath play","Hard cho
 function renderHardLimits(){const list=$("hardLimitsList");if(!list)return;list.replaceChildren(...VESPER_HARD_LIMITS.map(text=>{const row=document.createElement("div");row.className="hard-limit-item";row.textContent=text;return row;}));}
 function renderKeyStatus(){const hasKey=Boolean(getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY));$("apiKeyStatus").textContent=hasKey?"•••••••• stored securely on this device":"No API key stored on this device";$("replaceKeyButton").textContent=hasKey?"Replace API Key":"Add API Key";}
 function beginKeyReplacement(){const row=$("apiKeyReplaceRow"),input=$("apiKey");row.hidden=false;input.value="";input.focus({preventScroll:true});}
-async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=draft||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);return data;}
+async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=draft||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);const usage=data?.usage||{};vault.usageEntries.push(recordUsage({storyId:activeStoryId,chatId:activeChatId,model,promptTokens:usage.prompt_tokens||0,completionTokens:usage.completion_tokens||0,cost:null}));await saveVaultAtomic(db,vault);renderQueryMeter();return data;}
 async function testModelConnection(){const out=$("connectionTestStatus");out.textContent="Testing…";try{await probeOpenRouter("Reply with exactly: VESPER CONNECTED");out.textContent="✓ Connection successful.";}catch(error){out.textContent=`Connection failed: ${error.message}`;}}
 async function testRpQuality(){const out=$("connectionTestStatus");out.textContent="Running RP quality test…";try{const data=await probeOpenRouter("In one short sentence, write atmospheric gothic roleplay prose about a candlelit hall. No sexual content.");const sample=data?.choices?.[0]?.message?.content?.trim();out.textContent=sample?`RP test: ${sample}`:"RP test connected, but returned no text.";}catch(error){out.textContent=`RP test failed: ${error.message}`;}}
 function openSettings(){
@@ -243,7 +243,7 @@ async function generateOpeningForStory(story,chatId){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:3000,repairAttempts:4,signal:activeGenerationController.signal});
-    recordTurnUsage(result,{storyId:story.id,chatId,model});
+    recordTurnUsage(result,{storyId:story.id,chatId,model});await saveVaultAtomic(db,vault);
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){
       const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");
       throw new Error(why?`Vesper rejected the opener: ${why}.`:"Vesper returned no usable opener.");
@@ -329,6 +329,7 @@ async function sendTurn(event){
 }
 function changeStory(e){const storyId=e.target.value,chat=chooseInitialChat(vault,storyId);renderStory(storyId,chat?.id);}
 function renderStoryPicker(){const picker=$("storyPicker"),choices=listStoryChoices(vault);picker.innerHTML="";for(const choice of choices){const option=document.createElement("option");option.value=choice.storyId;option.textContent=`${choice.title} — ${choice.characterName} / ${choice.personaName}`;picker.appendChild(option);}if(activeStoryId)picker.value=activeStoryId;picker.hidden=choices.length<2;}
+function showRelationshipStatus(){const storyId=activeStoryId;if(!storyId){showStatus("Open a story first.","notice");return;}const rows=(vault.relationships||[]).filter(r=>r.storyId===storyId);if(!rows.length){showStatus("No structured relationship state has been recorded for this story yet.","notice");return;}const summary=rows.map(r=>[r.stage,...(r.labels||[])].filter(Boolean).join(" · ")).join(" | ");showStatus(summary||"Relationship state is recorded.","notice");}
 function showStatus(text,type="clear"){$("status").replaceChildren();$("status").className=`status ${type}`;$("status").hidden=!text;if(!text)return;if(type==="working"){const dot=document.createElement("span");dot.className="writing-dot";dot.setAttribute("aria-hidden","true");const label=document.createElement("span");label.textContent=text;$("status").append(dot,label);}else $("status").textContent=text;}
 function openDeleteStory(storyId){
   const story=vault.stories.find(s=>s.id===storyId);if(!story)return;
