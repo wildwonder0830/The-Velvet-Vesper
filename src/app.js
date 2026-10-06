@@ -125,7 +125,10 @@ function openSettings(){
   $("settingsPanel").hidden=false;
 }
 async function saveSettings(){
-  setDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY,$("apiKey").value.trim());
+  const enteredKey=$("apiKey").value.trim();
+  const existingKey=getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY);
+  if(enteredKey) setDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY,enteredKey);
+  else if(existingKey) $("apiKey").value=existingKey;
   localStorage.setItem("vesper.model",$("modelName").value.trim());
   const story=vault.stories.find(s=>s.id===activeStoryId);
   if(story){story.settings={...(story.settings||{}),model:$("modelName").value.trim(),temperature:Number($("temperatureSetting").value)||0.9,maxTokens:Number($("maxTokensSetting").value)||1200,intimacyPacing:$("intimacyPacing").value,requirePlotAfterSex:$("requirePlotAfterSex").checked};await saveVaultAtomic(db,vault);}
