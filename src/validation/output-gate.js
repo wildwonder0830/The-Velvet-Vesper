@@ -1,8 +1,10 @@
 import { findHardRuleViolations } from "../rules/hard-rules.js";
 
 const USER_AGENCY_PATTERNS = [
-  /\bAmanda\s+(?:said|says|asked|asks|thought|thinks|felt|feels|decided|decides|realized|realizes)\b/i,
-  /\bAmanda\s+(?:kissed|touched|reached\s+for|took|takes|accepted|accepts|agreed|agrees|followed|follows|chose|chooses|decided|decides)\b/i
+  // Catch clear NEW voluntary/consequential actions. Do not flag simple references
+  // to dialogue, feelings, or realizations because those may be restating facts the
+  // user just established in her own turn.
+  /\bAmanda\s+(?:kissed|touch(?:ed|es)|reached\s+for|took|takes|accepted|accepts|agreed|agrees|followed|follows|chose|chooses|decided|decides|nodded|nods|stepped\s+(?:toward|closer)|walked\s+(?:toward|with)|gave\s+him|gave\s+them|handed\s+(?:him|them))\b/i
 ];
 
 const PASSIVE_HANDOFF_PATTERNS = [
