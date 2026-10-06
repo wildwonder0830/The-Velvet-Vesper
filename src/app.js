@@ -13,7 +13,7 @@ import { serializePortableBackup } from "./backup/vesper-backup.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
-let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false, retryMessageId = null, activeGenerationController = null;
+let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const rememberTab=tab=>{try{localStorage.setItem(LAST_TAB_KEY,tab);}catch{}};
 const lastTab=()=>{try{return localStorage.getItem(LAST_TAB_KEY)||"library";}catch{return "library";}};
@@ -133,19 +133,7 @@ async function createStarterStory(){
   }
   vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);
   if(blackthorn||venomous){
-    const model=story.settings?.model||localStorage.getItem("vesper.model"),key=getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY);
-    if(model&&key){
-      sending=true;$("sendButton").disabled=true;showStatus("Vesper is opening the story…","working");
-      try{
-        const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-        const result=await runTurn({vault,storyId,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:3000});
-        recordTurnUsage(result,{storyId,chatId,model});
-        if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Opening was blocked by a Vesper hard rule.");
-        vault.messages.push({id:makeId("message"),storyId,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
-        await saveVaultAtomic(db,vault);renderStory(storyId,chatId);showStatus(result.repaired?"Opening repaired before display.":"","notice");
-      }catch(error){showStatus(`Story created, but opening generation failed: ${error.message}`,"error");}
-      finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
-    }else showStatus((blackthorn?"The Blackthorn Prophecy":"Venomous Devotion")+" is ready. Add your OpenRouter key and model in Settings, then begin when ready.","notice");
+    await generateOpeningForStory(story,chatId);
   }else showStatus("Story created. Cast identities are isolated and ready for canon.","notice");
 }
 const VESPER_HARD_LIMITS=["Anal sex or anal penetration","Breath play","Hard choking or strangulation","Suffocation or intentional oxygen restriction","Eroticized loss of consciousness from airway or blood-flow restriction","Electrical stimulation / e-stim","Sexual content involving animals or bestiality","Extreme or torture pain","Crying as an erotic goal, kink, or escalation target","Urine","Feces / scat","Overstimulation","Canine reproductive anatomy, knotting, tie, or bulbus-glandis","Canine genital locking or literal animal mating mechanics","Werewolf/shifter sexual anatomy","Double penetration"];
@@ -221,9 +209,52 @@ function stopGeneration(){
     showStatus("Generation was already finished. Composer restored.","notice");
   }
 }
+async function generateOpeningForStory(story,chatId){
+  if(sending||!story?.openingScene)return;
+  const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
+  const key=getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY);
+  if(!model||!key){
+    retryOpeningStoryId=story.id;
+    showRetry(true,"Generate Opening");
+    showStatus(story.title+" is ready. Add your OpenRouter key/model if needed, then tap Generate Opening.","notice");
+    return;
+  }
+  const already=vault.messages.some(m=>m.storyId===story.id&&m.chatId===chatId);
+  if(already){retryOpeningStoryId=null;showRetry(false);return;}
+  sending=true;setGenerationUi(true);showRetry(false);activeGenerationController=new AbortController();showStatus("Vesper is opening the story…","working");
+  try{
+    const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
+    const result=await runTurn({vault,storyId:story.id,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:3000,repairAttempts:4,signal:activeGenerationController.signal});
+    recordTurnUsage(result,{storyId:story.id,chatId,model});
+    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){
+      const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");
+      throw new Error(why?`Vesper rejected the opener: ${why}.`:"Vesper returned no usable opener.");
+    }
+    vault.messages.push({id:makeId("message"),storyId:story.id,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
+    retryOpeningStoryId=null;
+    await saveVaultAtomic(db,vault);
+    renderStory(story.id,chatId);
+    showStatus(result.repaired?"Opening repaired before display.":"","notice");
+  }catch(error){
+    retryOpeningStoryId=story.id;
+    showRetry(true,"Generate Opening");
+    showStatus(`Opening generation failed: ${error.message}`,"error");
+  }finally{
+    sending=false;activeGenerationController=null;setGenerationUi(false);
+  }
+}
+
 async function regenerateLatestReply(){if(sending)return;const latest=[...vault.messages].filter(m=>m.chatId===activeChatId&&m.role==="assistant").sort((a,b)=>(b.ordinal??0)-(a.ordinal??0))[0];if(!latest){showStatus("There is no Vesper reply to regenerate yet.","notice");return;}await regenerateAssistantMessage(latest);}
 async function retryFailedTurn(){
-  if(sending||!retryMessageId)return;
+  if(sending)return;
+  if(retryOpeningStoryId){
+    const story=vault.stories.find(s=>s.id===retryOpeningStoryId);
+    const chat=vault.chats.find(c=>c.storyId===retryOpeningStoryId);
+    if(!story||!chat){retryOpeningStoryId=null;showRetry(false);return;}
+    await generateOpeningForStory(story,chat.id);
+    return;
+  }
+  if(!retryMessageId)return;
   const message=vault.messages.find(m=>m.id===retryMessageId&&m.role==="user");
   if(!message){retryMessageId=null;showRetry(false);return;}
   const story=vault.stories.find(s=>s.id===message.storyId),chat=vault.chats.find(c=>c.id===message.chatId);if(!story||!chat)return;
