@@ -20,6 +20,9 @@ function bindUi() {
   $("importButton").onclick=()=>$("importFile").click(); $("importFile").onchange=handleImportFile;
   $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
+  $("continueButton").onclick=()=>runStoryTool("continue");
+  $("elaborateButton").onclick=()=>runStoryTool("elaborate");
+  $("myTurnButton").onclick=()=>runStoryTool("myturn");
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory;
   $("settingsButton").onclick=openSettings; $("settingsClose").onclick=()=>$("settingsPanel").hidden=true;
   $("saveSettings").onclick=saveSettings; $("storyPicker").onchange=changeStory;
@@ -75,7 +78,7 @@ async function createStarterStory(){
       sending=true;$("sendButton").disabled=true;showStatus("Vesper is opening the story…","working");
       try{
         const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-        const result=await runTurn({vault,storyId,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true});
+        const result=await runTurn({vault,storyId,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:1200});
         if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Opening was blocked by a Vesper hard rule.");
         vault.messages.push({id:makeId("message"),storyId,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
         await saveVaultAtomic(db,vault);renderStory(storyId,chatId);showStatus(result.repaired?"Opening repaired before display.":"","notice");
@@ -97,6 +100,16 @@ async function saveSettings(){
   if(story){story.settings={...(story.settings||{}),model:$("modelName").value.trim()};await saveVaultAtomic(db,vault);}
   $("settingsPanel").hidden=true;
 }
+async function runStoryTool(kind){
+  if(sending)return;
+  const prompts={
+    continue:"[OOC: Continue directly from the exact point where the previous response stopped. If it ended mid-sentence, complete that sentence first. Do not repeat or summarize prior prose. Continue the scene naturally and stop on a complete narrative beat.]",
+    elaborate:"[OOC: Elaborate the immediately preceding assistant response with richer sensory detail, character-specific behavior, dialogue, and atmosphere while preserving every established event and fact. Do not advance past its endpoint more than necessary.]",
+    myturn:"[OOC: Bring the current model-controlled beat to a clean natural stopping point for Amanda to respond. Do not narrate Amanda's dialogue, actions, thoughts, feelings, choices, or reactions.]"
+  };
+  const input=$("messageInput"),prior=input.value;input.value=prompts[kind];
+  $("composer").requestSubmit();input.value=prior;
+}
 async function sendTurn(event){
   event.preventDefault(); if(sending)return;
   const text=$("messageInput").value.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
@@ -111,7 +124,7 @@ async function sendTurn(event){
   sending=true;$("sendButton").disabled=true;showStatus("Vesper is writing…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{}});
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},maxTokens:1200});
     if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Reply was blocked by a Vesper hard rule.");
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal:ordinal+1,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     await saveVaultAtomic(db,vault);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);
