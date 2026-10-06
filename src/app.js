@@ -66,6 +66,7 @@ function bindUi() {
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
   $("elaborateButton").onclick=()=>runStoryTool("elaborate");
+  on("myTurnButton","click",generateMyTurnDraft);
   on("oocButton","click",()=>insertCommand("/ooc ")); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory; on("setupTemplate","change",applyStoryTemplate);
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
