@@ -44,3 +44,5 @@
 
 /* Keep the story scroller clipped to its grid row. Without this, the message column can grow behind the sticky composer and fixed nav, exposing unscrolled story text below the controls. */
 .chat-view{height:100%;min-height:0;overflow:hidden}.messages{min-height:0;overflow-y:auto;overscroll-behavior:contain}.composer{z-index:8}.workspace{overflow:hidden}
+
+.message-controls{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:8px}.message-edit{border:0;background:transparent;color:#d8a9b5;font-size:11px;padding:3px 6px;cursor:pointer}.message-edit:hover,.message-edit:focus{color:#fff0f3}.edited-tag{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#8f7d82}
