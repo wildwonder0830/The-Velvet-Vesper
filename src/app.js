@@ -138,11 +138,37 @@ async function runStoryTool(kind){
   if(sending)return;
   const prompts={
     continue:"[OOC: Continue directly from the exact point where the previous response stopped. If it ended mid-sentence, complete that sentence first. Do not repeat or summarize prior prose. Continue the scene naturally and stop on a complete narrative beat.]",
-    elaborate:"[OOC: Elaborate the immediately preceding assistant response with richer sensory detail, character-specific behavior, dialogue, and atmosphere while preserving every established event and fact. Do not advance past its endpoint more than necessary.]",
-    myturn:"[OOC TOOL — MY TURN: Draft Amanda's next possible roleplay turn for the user to review, edit, or send. Write ONLY Amanda's proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond Amanda's proposed response. This is a drafting tool, so the normal rule against narrating Amanda is temporarily overridden for this generated draft only.]"
+    elaborate:"[OOC: Elaborate the immediately preceding assistant response with richer sensory detail, character-specific behavior, dialogue, and atmosphere while preserving every established event and fact. Do not advance past its endpoint more than necessary.]"
   };
+  if(kind==="myturn"){await generateMyTurnDraft();return;}
   const input=$("messageInput"),prior=input.value;input.value=prompts[kind];
   $("composer").requestSubmit();input.value=prior;
+}
+async function generateMyTurnDraft(){
+  if(sending)return;
+  const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
+  if(!story||!chat)return;
+  const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
+  if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
+  if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
+  const input=$("messageInput"),prior=input.value;
+  sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus("Drafting your turn…","working");
+  try{
+    const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
+    const instruction="[OOC TOOL — MY TURN: Draft Amanda's next possible roleplay turn for the user to review and edit. Write ONLY Amanda's proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond Amanda's proposed response. This is a draft only and must not be treated as sent canon until the user submits it.]";
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
+    if(result.blocked||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable draft.");
+    input.value=result.text.trim();
+    input.focus({preventScroll:true});
+    input.setSelectionRange(input.value.length,input.value.length);
+    showStatus("Draft ready. Edit anything you want, then Send when it feels like you.","notice");
+  }catch(error){
+    input.value=prior;
+    showStatus(error?.name==="AbortError"?"Drafting stopped.":`Draft failed: ${error.message}`,"error");
+  }finally{
+    sending=false;activeGenerationController=null;setGenerationUi(false);
+  }
 }
 function insertCommand(command){const input=$("messageInput"),start=input.selectionStart??input.value.length,end=input.selectionEnd??start,before=input.value.slice(0,start),after=input.value.slice(end),needsSpace=before&&!/\s$/.test(before);input.value=before+(needsSpace?" ":"")+command+after;const pos=(before+(needsSpace?" ":"")+command).length;input.focus({preventScroll:true});input.setSelectionRange(pos,pos);}
 function stopGeneration(){
