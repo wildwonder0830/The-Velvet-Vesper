@@ -92,3 +92,7 @@
   .send-state{margin-left:auto;max-width:calc(100% - 72px)}
   .command-chips{width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;padding-bottom:4px}
 }
+
+/* Generation control visibility: Stop replaces Send while a request is active. */
+.stop-generation[hidden], .send[hidden], .writing-state[hidden]{display:none!important}
+.stop-generation:not([hidden]){display:inline-flex!important;align-items:center;justify-content:center}
