@@ -17,7 +17,7 @@ async function boot() {
   db = await openVesperDb(); vault = await loadVault(db); bindUi(); render();
 }
 function bindUi() {
-  $("importButton").onclick=()=>$("importFile").click(); $("importFile").onchange=handleImportFile;
+  $("importButton").onclick=()=>$("importFile").click(); $("importFile").onchange=handleImportFile; $("menuButton").onclick=showLibrary; $("libraryNavButton").onclick=showLibrary; $("storyNavButton").onclick=showActiveStory;
   $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
@@ -134,7 +134,18 @@ async function sendTurn(event){
 function changeStory(e){const storyId=e.target.value,chat=chooseInitialChat(vault,storyId);renderStory(storyId,chat?.id);}
 function renderStoryPicker(){const picker=$("storyPicker"),choices=listStoryChoices(vault);picker.innerHTML="";for(const choice of choices){const option=document.createElement("option");option.value=choice.storyId;option.textContent=`${choice.title} — ${choice.characterName} / ${choice.personaName}`;picker.appendChild(option);}if(activeStoryId)picker.value=activeStoryId;picker.hidden=choices.length<2;}
 function showStatus(text,type="clear"){$("status").textContent=text;$("status").className=`status ${type}`;$("status").hidden=!text;}
-function render(){if(vault.stories.length){const s=vault.stories[0],c=vault.chats.find(x=>x.storyId===s.id);renderStory(s.id,c?.id);}else{$("emptyState").hidden=false;$("chatView").hidden=true;}}
+function showLibrary(){
+  $("chatView").hidden=true;$("emptyState").hidden=false;
+  $("emptyState").querySelector("h1").textContent="Your story library.";
+  $("emptyState").querySelector("p").textContent=vault.stories.length?"Choose a story, import another vault, or begin a new Vesper story.":"Import a Noctis vault or begin a new Vesper story.";
+  let library=$("storyLibrary");
+  if(!library){library=document.createElement("div");library.id="storyLibrary";library.className="story-library";$("emptyState").insertBefore(library,$("emptyState").querySelector(".action-row"));}
+  library.replaceChildren();
+  for(const choice of listStoryChoices(vault)){const b=document.createElement("button");b.type="button";b.className="library-card";const title=document.createElement("strong"),meta=document.createElement("span");title.textContent=choice.title;meta.textContent=choice.characterName+" · Playing as "+choice.personaName;b.append(title,meta);b.onclick=()=>{const chat=chooseInitialChat(vault,choice.storyId);renderStory(choice.storyId,chat?.id);};library.append(b);}
+  $("libraryNavButton").classList.add("active");$("storyNavButton").classList.remove("active");
+}
+function showActiveStory(){if(activeStoryId){renderStory(activeStoryId,activeChatId);return;}const s=vault.stories[0];if(s){const c=chooseInitialChat(vault,s.id);renderStory(s.id,c?.id);}else showLibrary();}
+function render(){if(vault.stories.length){const s=vault.stories[0],c=vault.chats.find(x=>x.storyId===s.id);renderStory(s.id,c?.id);}else showLibrary();}
 function renderMessage(node,message){
   node.replaceChildren();
   const text=String(message.text||"");
@@ -153,6 +164,6 @@ function renderMessage(node,message){
     node.append(block);
   }
 }
-function renderStory(storyId,chatId){activeStoryId=storyId;activeChatId=chatId;renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId){activeStoryId=storyId;activeChatId=chatId;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));$("messages").scrollTop=$("messages").scrollHeight;}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});
