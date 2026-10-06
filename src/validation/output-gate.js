@@ -10,7 +10,7 @@ const PASSIVE_HANDOFF_PATTERNS = [
   /\bwait(?:s|ing)? for (?:her|Amanda) to (?:respond|react|decide|speak|act)\b/i
 ];
 
-export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [] }) {
+export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false }) {
   const issues = [];
   for (const violation of findHardRuleViolations(text)) issues.push({ type: "hard-rule", severity: "block", ...violation });
 
@@ -23,8 +23,10 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
   for (const pattern of USER_AGENCY_PATTERNS) {
     if (pattern.test(text)) issues.push({ type: "user-agency", severity: "repair", message: "Model supplied a voluntary or consequential choice for Amanda." });
   }
-  for (const pattern of PASSIVE_HANDOFF_PATTERNS) {
-    if (pattern.test(text)) issues.push({ type: "passive-handoff", severity: "repair", message: "Model defaulted to passive waiting/hand-off." });
+  if (!opening) {
+    for (const pattern of PASSIVE_HANDOFF_PATTERNS) {
+      if (pattern.test(text)) issues.push({ type: "passive-handoff", severity: "repair", message: "Model defaulted to passive waiting/hand-off." });
+    }
   }
 
   if (continuity.mateBond && /\b(?:first kiss|do you love me|does she love him|are we together)\b/i.test(text)) {
