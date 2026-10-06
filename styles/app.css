@@ -96,3 +96,10 @@
 /* Generation control visibility: Stop replaces Send while a request is active. */
 .stop-generation[hidden], .send[hidden], .writing-state[hidden]{display:none!important}
 .stop-generation:not([hidden]){display:inline-flex!important;align-items:center;justify-content:center}
+
+.messages-wrap{position:relative;min-height:0;overflow:hidden}
+.messages{height:100%}
+.scroll-bottom{position:absolute;right:16px;bottom:16px;z-index:12;width:44px;height:44px;border-radius:50%;border:1px solid #8d2940;background:#1a0d12e8;color:#ffe9ee;font-size:24px;line-height:1;box-shadow:0 8px 24px #0009}
+.scroll-bottom[hidden]{display:none!important}
+.chat-view{grid-template-rows:auto minmax(0,1fr) auto auto auto!important}
+.status{position:relative!important;bottom:auto!important;width:auto!important;max-width:none!important;margin:0 12px 8px!important}
