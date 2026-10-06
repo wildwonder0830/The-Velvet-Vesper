@@ -9,6 +9,7 @@ import { setDeviceSecret, getDeviceSecret, DEVICE_SECRET_NAMES } from "./setting
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
 import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/story-selection.js";
 import { recordUsage } from "./usage/usage-ledger.js";
+import { serializePortableBackup } from "./backup/vesper-backup.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
@@ -36,8 +37,19 @@ function bindUi() {
   $("myTurnButton").onclick=()=>runStoryTool("myturn");
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory;
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
-  $("saveSettings").onclick=saveSettings; $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
+  $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
 }
+
+function backupFilename(){const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")+"_"+[String(d.getHours()).padStart(2,"0"),String(d.getMinutes()).padStart(2,"0")].join("-");return `Vesper_Backup_${stamp}.json`;}
+async function downloadBackup(){
+  try{
+    vault.updatedAt=new Date().toISOString();await saveVaultAtomic(db,vault);
+    const json=serializePortableBackup(vault),blob=new Blob([json],{type:"application/json"}),url=URL.createObjectURL(blob),link=document.createElement("a");
+    link.href=url;link.download=backupFilename();document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    showStatus("Backup created. Keep that JSON file somewhere safe.","notice");
+  }catch(error){showStatus(`Backup failed: ${error.message}`,"error");}
+}
+
 async function handleImportFile(e){
   const file=e.target.files?.[0]; if(!file)return;
   try{const source=JSON.parse(await file.text()), preview=previewImport(source); preparedImport=prepareImport(source);
