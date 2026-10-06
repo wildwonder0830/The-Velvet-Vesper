@@ -146,7 +146,7 @@ async function sendTurn(event){
 }
 function changeStory(e){const storyId=e.target.value,chat=chooseInitialChat(vault,storyId);renderStory(storyId,chat?.id);}
 function renderStoryPicker(){const picker=$("storyPicker"),choices=listStoryChoices(vault);picker.innerHTML="";for(const choice of choices){const option=document.createElement("option");option.value=choice.storyId;option.textContent=`${choice.title} — ${choice.characterName} / ${choice.personaName}`;picker.appendChild(option);}if(activeStoryId)picker.value=activeStoryId;picker.hidden=choices.length<2;}
-function showStatus(text,type="clear"){$("status").textContent=text;$("status").className=`status ${type}`;$("status").hidden=!text;}
+function showStatus(text,type="clear"){$("status").replaceChildren();$("status").className=`status ${type}`;$("status").hidden=!text;if(!text)return;if(type==="working"){const dot=document.createElement("span");dot.className="writing-dot";dot.setAttribute("aria-hidden","true");const label=document.createElement("span");label.textContent=text;$("status").append(dot,label);}else $("status").textContent=text;}
 function openDeleteStory(storyId){
   const story=vault.stories.find(s=>s.id===storyId);if(!story)return;
   pendingDeleteStoryId=storyId;$("deleteStoryText").textContent='This will permanently delete "'+story.title+'" and its chats, messages, story-scoped memory, milestones, relationships, stats, scene state, knowledge, lore, and story-owned persona/characters from this device. This cannot be undone.';
