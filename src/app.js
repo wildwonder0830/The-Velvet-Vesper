@@ -12,6 +12,9 @@ import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false;
+const LAST_TAB_KEY="vesper.ui.lastTab";
+const rememberTab=tab=>{try{localStorage.setItem(LAST_TAB_KEY,tab);}catch{}};
+const lastTab=()=>{try{return localStorage.getItem(LAST_TAB_KEY)||"library";}catch{return "library";}};
 
 async function boot() {
   db = await openVesperDb(); vault = await loadVault(db); bindUi(); render();
@@ -156,6 +159,7 @@ async function confirmDeleteStory(){
   await saveVaultAtomic(db,vault);closeDeleteStory();showLibrary();
 }
 function showLibrary(){
+  rememberTab("library");
   $("dataView").hidden=true;$("chatView").hidden=true;$("emptyState").hidden=false;
   const library=$("storyLibrary");library.replaceChildren();
   const choices=listStoryChoices(vault);
@@ -179,6 +183,7 @@ function showLibrary(){
   ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));$("libraryNavButton").classList.add("active");
 }
 function showDataView(kind){
+  rememberTab(kind);
   $("emptyState").hidden=true;$("chatView").hidden=true;$("dataView").hidden=false;
   const isMemory=kind==="memory",storyId=activeStoryId;
   $("dataEyebrow").textContent=storyId?(vault.stories.find(s=>s.id===storyId)?.title||"ACTIVE STORY"):"VESPER";
@@ -190,8 +195,16 @@ function showDataView(kind){
   ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));
   $(isMemory?"memoryNavButton":"milestonesNavButton").classList.add("active");
 }
-function showActiveStory(){if(activeStoryId){renderStory(activeStoryId,activeChatId);return;}const s=vault.stories[0];if(s){const c=chooseInitialChat(vault,s.id);renderStory(s.id,c?.id);}else showLibrary();}
-function render(){if(vault.stories.length){const s=vault.stories[0],c=vault.chats.find(x=>x.storyId===s.id);renderStory(s.id,c?.id);}else showLibrary();}
+function showActiveStory(){rememberTab("story");if(activeStoryId){renderStory(activeStoryId,activeChatId);return;}const s=vault.stories[0];if(s){const c=chooseInitialChat(vault,s.id);renderStory(s.id,c?.id);}else showLibrary();}
+function render(){
+  const tab=lastTab();
+  if(tab==="library"){showLibrary();return;}
+  if(!vault.stories.length){showLibrary();return;}
+  const s=vault.stories[0],c=vault.chats.find(x=>x.storyId===s.id);activeStoryId=s.id;activeChatId=c?.id||null;
+  if(tab==="memory"){showDataView("memory");return;}
+  if(tab==="milestones"){showDataView("milestones");return;}
+  renderStory(s.id,c?.id);
+}
 function renderMessage(node,message){
   node.replaceChildren();
   const text=String(message.text||"");
@@ -210,6 +223,6 @@ function renderMessage(node,message){
     node.append(block);
   }
 }
-function renderStory(storyId,chatId){activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId){rememberTab("story");activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));$("messages").scrollTop=$("messages").scrollHeight;}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});
