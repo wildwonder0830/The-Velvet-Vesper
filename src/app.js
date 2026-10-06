@@ -105,7 +105,7 @@ async function runStoryTool(kind){
   const prompts={
     continue:"[OOC: Continue directly from the exact point where the previous response stopped. If it ended mid-sentence, complete that sentence first. Do not repeat or summarize prior prose. Continue the scene naturally and stop on a complete narrative beat.]",
     elaborate:"[OOC: Elaborate the immediately preceding assistant response with richer sensory detail, character-specific behavior, dialogue, and atmosphere while preserving every established event and fact. Do not advance past its endpoint more than necessary.]",
-    myturn:"[OOC: Bring the current model-controlled beat to a clean natural stopping point for Amanda to respond. Do not narrate Amanda's dialogue, actions, thoughts, feelings, choices, or reactions.]"
+    myturn:"[OOC TOOL — MY TURN: Draft Amanda's next possible roleplay turn for the user to review, edit, or send. Write ONLY Amanda's proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond Amanda's proposed response. This is a drafting tool, so the normal rule against narrating Amanda is temporarily overridden for this generated draft only.]"
   };
   const input=$("messageInput"),prior=input.value;input.value=prompts[kind];
   $("composer").requestSubmit();input.value=prior;
