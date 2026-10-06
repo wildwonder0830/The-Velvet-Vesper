@@ -182,7 +182,7 @@ async function generateReplyForMessage({message,story,chat}){
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
-    if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Vesper couldn't produce a valid reply.");
+    if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn't produce a valid reply.");}
     const ordinal=Math.max(-1,...vault.messages.filter(m=>m.chatId===chat.id).map(m=>Number(m.ordinal)??-1))+1;
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     retryMessageId=null;await saveVaultAtomic(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);const composer=$("messageInput");composer.hidden=false;composer.focus({preventScroll:true});
