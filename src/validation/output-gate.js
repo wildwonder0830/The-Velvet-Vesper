@@ -12,7 +12,7 @@ const PASSIVE_HANDOFF_PATTERNS = [
   /\bwait(?:s|ing)? for (?:her|Amanda) to (?:respond|react|decide|speak|act)\b/i
 ];
 
-export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false }) {
+export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "" }) {
   const issues = [];
   for (const violation of findHardRuleViolations(text)) issues.push({ type: "hard-rule", severity: "block", ...violation });
 
@@ -24,7 +24,9 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
 
   if (!personaDraft) {
     for (const pattern of USER_AGENCY_PATTERNS) {
-      if (pattern.test(text)) issues.push({ type: "user-agency", severity: "repair", message: "Model supplied a voluntary or consequential choice for Amanda." });
+      const outputMatch = text.match(pattern)?.[0]?.replace(/\s+/g, " ").trim().toLowerCase();
+      const userEstablished = outputMatch && priorUserText.replace(/\s+/g, " ").toLowerCase().includes(outputMatch);
+      if (outputMatch && !userEstablished) issues.push({ type: "user-agency", severity: "repair", message: "Model supplied a voluntary or consequential choice for Amanda." });
     }
   }
   if (!opening && !personaDraft) {
