@@ -41,6 +41,9 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
       if (pattern.test(text)) issues.push({ type: "passive-handoff", severity: "repair", message: "Model defaulted to passive waiting/hand-off." });
     }
   }
+  if (personaDraft && /\b(?:understood|previous response|future responses|ready for the next turn|whenever you are|i(?:\'| a)?m ready)\b/i.test(String(text))) {
+    issues.push({ type: "persona-draft-meta", severity: "repair", message: "My Turn returned meta/instructional chatter instead of Amanda\'s draft." });
+  }
 
   if (continuity.mateBond && /\b(?:first kiss|do you love me|does she love him|are we together)\b/i.test(text)) {
     issues.push({ type: "continuity-reset", severity: "repair", message: "Output conflicts with established mate-bond state." });
