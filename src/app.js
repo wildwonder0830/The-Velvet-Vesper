@@ -156,7 +156,7 @@ async function generateReplyForMessage({message,story,chat}){
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
-  sending=true;$("sendButton").disabled=true;showRetry(false);activeGenerationController=new AbortController();$("stopButton").hidden=false;$("writingState").hidden=false;showStatus("Vesper is writing…","working");
+  sending=true;$("sendButton").disabled=true;$("sendButton").hidden=true;showRetry(false);activeGenerationController=new AbortController();$("stopButton").hidden=false;$("writingState").hidden=false;showStatus("Vesper is writing…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
