@@ -58,7 +58,7 @@ async function handleImportFile(e){
     $("confirmImport").onclick=confirmImport;
   }catch(error){$("importPreview").hidden=false;$("importPreview").textContent=`Import error: ${error.message}`;}
 }
-async function confirmImport(){if(!preparedImport)return;await commitPreparedImport(db,preparedImport);vault=await loadVault(db);preparedImport=null;render();}
+async function confirmImport(){if(!preparedImport)return;const button=$("confirmImport");if(button){button.disabled=true;button.textContent="Importing…";}try{await commitPreparedImport(db,preparedImport);vault=await loadVault(db);preparedImport=null;const preview=$("importPreview");preview.hidden=true;preview.replaceChildren();const input=$("importFile");if(input)input.value="";render();showStatus("Backup imported successfully.","notice");}catch(error){if(button){button.disabled=false;button.textContent="Confirm Import";}showStatus(`Import failed: ${error.message}`,"error");}}
 function openStorySetup(){$("storySetupPanel").hidden=false;}
 function closeStorySetup(){$("storySetupPanel").hidden=true;}
 async function createStarterStory(){
