@@ -103,3 +103,9 @@
 .scroll-bottom[hidden]{display:none!important}
 .chat-view{grid-template-rows:auto minmax(0,1fr) auto auto auto!important}
 .status{position:relative!important;bottom:auto!important;width:auto!important;max-width:none!important;margin:0 12px 8px!important}
+
+.in-story-text-bubble{width:fit-content;max-width:82%;margin:10px 0 12px auto;padding:9px 12px 10px;border:1px solid #6f2940;border-radius:16px 16px 5px 16px;background:linear-gradient(145deg,#421527,#27101a);box-shadow:0 6px 18px #0006,0 0 14px #8e102c18}
+.in-story-text-sender{display:block;margin-bottom:3px;font-size:9px;font-weight:800;letter-spacing:.12em;color:#e9a1b2}
+.in-story-text-body{font-size:15px;line-height:1.45;color:#fff1f4;white-space:pre-wrap}
+.message.user .in-story-text-bubble{margin-left:auto}
+.message.assistant .in-story-text-bubble{margin-left:0;margin-right:auto;border-radius:16px 16px 16px 5px;background:linear-gradient(145deg,#25131a,#130d10)}
