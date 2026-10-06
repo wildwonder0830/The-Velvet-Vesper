@@ -8,11 +8,15 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
  const assembled=assemblePrompt({vault,storyId,chatId,preferenceLines,storySettings,oocInstruction}),messages=toProviderMessages(assembled); messages.push({role:"system",content:"TURN ENDING RULE: End every roleplay reply on a complete sentence and a complete narrative beat. Never end on a fragment, dangling transition, teaser fragment, or truncated phrase. If the response approaches the token limit, conclude the current beat cleanly rather than beginning another sentence or paragraph."}); if(opening) messages.push({role:"system",content:"OPENING TURN: Begin the configured opening scene now. Follow openingScene facts exactly. Protect the user-controlled persona's meaningful agency: do not invent her voluntary choices, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential decisions. You MAY narrate involuntary, unavoidable, mechanically necessary, or explicitly configured opening events involving her when they do not imply a voluntary choice. If she could reasonably choose not to do something, leave that action to the user. OPENING COMPLETION RULE: The opening sequence may be as long as necessary to complete every configured openingScene fact, beat, reveal, character reaction, and required event properly. Completeness takes priority over brevity or ordinary turn length. Never abbreviate, summarize, rush, or prematurely stop an opening merely to meet a target length. Establish the setting and social tension, give each major model-controlled character a distinct beat and voice, and fully play through the configured opening incident before stopping. Use readable paragraph breaks. Stop at the first strong natural point where the persona can respond; do not say your move."});
  const first=await sendOpenRouterChat({model,messages,temperature,maxTokens,signal});let text=extractText(first);
  const continuity={mateBond:Boolean(assembled.mateBondCanon)};let validation=validateModelOutput({text,continuity,opening});
+ const usage=[first.usage].filter(Boolean);
  if(validation.issues.length){
-   const repaired=await sendOpenRouterChat({model,messages:[...messages,{role:"assistant",content:text},{role:"system",content:buildRepairInstruction(validation,{opening})}],temperature,maxTokens,signal});
-   text=extractText(repaired);validation=validateModelOutput({text,continuity,opening});
-   if(!validation.ok||validation.needsRepair)return {text:"",validation,usage:[first.usage,repaired.usage].filter(Boolean),repaired:true,blocked:true};
-   return {text,validation,usage:[first.usage,repaired.usage].filter(Boolean),repaired:true,blocked:false};
+   for(let attempt=0;attempt<2;attempt++){
+     const repaired=await sendOpenRouterChat({model,messages:[...messages,{role:"assistant",content:text},{role:"system",content:buildRepairInstruction(validation,{opening})}],temperature,maxTokens,signal});
+     if(repaired.usage)usage.push(repaired.usage);
+     text=extractText(repaired);validation=validateModelOutput({text,continuity,opening});
+     if(validation.ok&&!validation.needsRepair)return {text,validation,usage,repaired:true,blocked:false};
+   }
+   return {text:"",validation,usage,repaired:true,blocked:true};
  }
- return {text,validation,usage:[first.usage].filter(Boolean),repaired:false,blocked:false};
+ return {text,validation,usage,repaired:false,blocked:false};
 }
