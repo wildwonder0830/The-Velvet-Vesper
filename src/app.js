@@ -17,7 +17,8 @@ async function boot() {
   db = await openVesperDb(); vault = await loadVault(db); bindUi(); render();
 }
 function bindUi() {
-  $("importButton").onclick=()=>$("importFile").click(); $("importFile").onchange=handleImportFile; $("libraryNavButton").onclick=showLibrary; $("storyNavButton").onclick=showActiveStory; $("memoryNavButton").onclick=()=>showDataView("memory"); $("milestonesNavButton").onclick=()=>showDataView("milestones"); $("dataBackButton").onclick=showActiveStory;
+  const on=(id,event,handler)=>{const el=$(id);if(el)el.addEventListener(event,handler);};
+  on("importButton","click",()=>$("importFile")?.click()); on("importFile","change",handleImportFile); on("libraryNavButton","click",showLibrary); on("storyNavButton","click",showActiveStory); on("memoryNavButton","click",()=>showDataView("memory")); on("milestonesNavButton","click",()=>showDataView("milestones")); on("dataBackButton","click",showActiveStory);
   $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
