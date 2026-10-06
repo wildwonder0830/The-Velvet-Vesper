@@ -1,6 +1,7 @@
 import { openVesperDb, loadVault, saveVaultAtomic } from "./storage/vault-store.js";
 import { previewImport, prepareImport, commitPreparedImport } from "./migration/import-service.js";
 import { makeId } from "./schema.js";
+import { createMemory } from "./memory/memory-manager.js";
 import { runTurn } from "./chat/turn-engine.js";
 import { setDeviceSecret, getDeviceSecret, DEVICE_SECRET_NAMES } from "./settings/secret-store.js";
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
@@ -43,6 +44,18 @@ async function createStarterStory(){
   const story={id:storyId,title,characterIds:characters.map(x=>x.id),primaryCharacterId:characters[0].id,personaId,settings:{model:localStorage.getItem("vesper.model")||""},createdAt:now,updatedAt:now};
   if(blackthorn){story.premise="Aedan and Aeron Blackthorn are equal co-Alphas who share one fated mate: Amanda. Everyone expects their public mate announcement to name Amanda's favored full-blooded half-sister. The twins already know Amanda is their mate.";story.openingScene={location:"Major formal pack gathering for the co-Alphas' mate and future Luna announcement",facts:["Amanda is present because her family requires the appearance.","The favored half-sister deliberately trips Amanda at the start, causing her to fall.","Aedan and Aeron both directly witness the sister trip Amanda. Never rewrite this as an accident or something either twin missed.","The sister then says: Oh, you should really be more careful. And don't forget to smile. You look sad.","The family has no advance warning that Amanda will be named.","The twins already know Amanda is their mate before the announcement; do not write uncertain mate recognition.","Stop before narrating Amanda's response, reaction, dialogue, thoughts, feelings, or choices."],direction:"Aedan reacts with controlled strategic focus and recognizes evidence of the family dynamic. Aeron reacts hotter and less diplomatically without becoming foolish. The public reveal should land as a genuine shock."};story.prophecy={state:"unfulfilled",unlockTrigger:"first intimate union with her fated mates",earlyUnlockForbidden:true,effects:["forced suppression breaks","witch power fully returns","wolf fully returns","immortal healing resumes"]};}
   vault.stories.push(story);vault.chats.push({id:chatId,storyId,title:"Main Story",createdAt:now,updatedAt:now});
+  if(blackthorn){
+    const pinnedCanon=[
+      ["bond","Aedan, Aeron, and Amanda share one fated three-person bond. Each twin also has his own individual romantic relationship with Amanda."],
+      ["rank","Aedan and Aeron are equal co-Alphas; neither outranks the other."],
+      ["recognition","Aedan and Aeron already know Amanda is their fated mate before the opening scene."],
+      ["opening-witness","At the formal announcement, both Aedan and Aeron directly witness Amanda's favored half-sister deliberately cause Amanda to fall."],
+      ["family-secret","Amanda's family has no advance warning that Amanda will be publicly named instead of her favored half-sister."],
+      ["release-gate","Amanda's full supernatural release is gated by the prophecy's later relationship milestone and cannot trigger early from recognition, affection, or kissing."],
+      ["healing","Amanda's own returning supernatural power progressively restores her suppressed healing as the bond strengthens."]
+    ];
+    vault.memoryEntries.push(...pinnedCanon.map(([key,text])=>createMemory({storyId,chatId,kind:"canon",text,data:{key},pinned:true},now)));
+  }
   vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);showStatus(blackthorn?"The Blackthorn Prophecy is ready. The wolves are free.":"Story created. Cast identities are isolated and ready for canon.","notice");
 }
 function openSettings(){
