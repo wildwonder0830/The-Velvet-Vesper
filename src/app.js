@@ -218,10 +218,24 @@ function isOpeningMessage(message){
   const firstAssistant=vault.messages.filter(m=>m.chatId===message.chatId&&m.role==="assistant").sort((a,b)=>(a.ordinal??0)-(b.ordinal??0))[0];
   return firstAssistant?.id===message.id;
 }
+async function editUserMessage(message){
+  if(sending){showStatus("Wait for Vesper to finish writing before editing.","notice");return;}
+  const next=window.prompt("Edit your post",String(message.text||""));
+  if(next===null)return;
+  const text=next.trim();if(!text||text===String(message.text||"").trim())return;
+  message.text=text;message.editedAt=new Date().toISOString();vault.updatedAt=message.editedAt;
+  await saveVaultAtomic(db,vault);renderStory(message.storyId,message.chatId);showStatus("Post edited. Vesper will use the corrected version from now on.","notice");
+}
 function renderMessage(node,message){
   node.replaceChildren();
   const text=String(message.text||"");
-  if(message.role==="user"){node.textContent=text;return;}
+  if(message.role==="user"){
+    const body=document.createElement("div");body.className="user-message-text";body.textContent=text;node.append(body);
+    const controls=document.createElement("div");controls.className="message-controls";
+    const edit=document.createElement("button");edit.type="button";edit.className="message-edit";edit.textContent="Edit";edit.setAttribute("aria-label","Edit this post");edit.onclick=()=>editUserMessage(message);controls.append(edit);
+    if(message.editedAt){const tag=document.createElement("small");tag.className="edited-tag";tag.textContent="edited";controls.append(tag);}
+    node.append(controls);return;
+  }
   const quotePattern=/(["“][^"”\n]+["”])/g;
   for(const paragraph of text.split(/\n+/)){
     if(!paragraph.trim())continue;
