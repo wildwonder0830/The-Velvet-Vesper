@@ -127,7 +127,7 @@ function renderMessage(node,message){
   const text=String(message.text||"");
   if(message.role==="user"){node.textContent=text;return;}
   const quotePattern=/(["“][^"”\n]+["”])/g;
-  for(const paragraph of text.split(/\n{2,}/)){
+  for(const paragraph of text.split(/\n+/)){
     if(!paragraph.trim())continue;
     const block=document.createElement("div");block.className="message-paragraph";
     let last=0;
