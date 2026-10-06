@@ -11,7 +11,7 @@ import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
-let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, sending = false;
+let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false;
 
 async function boot() {
   db = await openVesperDb(); vault = await loadVault(db); bindUi(); render();
@@ -25,7 +25,7 @@ function bindUi() {
   $("myTurnButton").onclick=()=>runStoryTool("myturn");
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory;
   $("settingsButton").onclick=openSettings; $("settingsClose").onclick=()=>$("settingsPanel").hidden=true;
-  $("saveSettings").onclick=saveSettings; $("storyPicker").onchange=changeStory;
+  $("saveSettings").onclick=saveSettings; $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
 }
 async function handleImportFile(e){
   const file=e.target.files?.[0]; if(!file)return;
@@ -134,6 +134,26 @@ async function sendTurn(event){
 function changeStory(e){const storyId=e.target.value,chat=chooseInitialChat(vault,storyId);renderStory(storyId,chat?.id);}
 function renderStoryPicker(){const picker=$("storyPicker"),choices=listStoryChoices(vault);picker.innerHTML="";for(const choice of choices){const option=document.createElement("option");option.value=choice.storyId;option.textContent=`${choice.title} — ${choice.characterName} / ${choice.personaName}`;picker.appendChild(option);}if(activeStoryId)picker.value=activeStoryId;picker.hidden=choices.length<2;}
 function showStatus(text,type="clear"){$("status").textContent=text;$("status").className=`status ${type}`;$("status").hidden=!text;}
+function openDeleteStory(storyId){
+  const story=vault.stories.find(s=>s.id===storyId);if(!story)return;
+  pendingDeleteStoryId=storyId;$("deleteStoryText").textContent='This will permanently delete "'+story.title+'" and its chats, messages, story-scoped memory, milestones, relationships, stats, scene state, knowledge, lore, and story-owned persona/characters from this device. This cannot be undone.';
+  $("deleteStoryPanel").hidden=false;
+}
+function closeDeleteStory(){pendingDeleteStoryId=null;$("deleteStoryPanel").hidden=true;}
+async function confirmDeleteStory(){
+  const storyId=pendingDeleteStoryId;if(!storyId)return;
+  const story=vault.stories.find(s=>s.id===storyId);if(!story){closeDeleteStory();return;}
+  const chatIds=new Set(vault.chats.filter(x=>x.storyId===storyId).map(x=>x.id));
+  const storyScoped=["messages","memoryEntries","milestones","relationships","statEvents","sceneStates","knowledgeEntries","loreEntries","usageEntries"];
+  for(const key of storyScoped)vault[key]=(vault[key]||[]).filter(x=>x.storyId!==storyId&&!chatIds.has(x.chatId));
+  vault.chats=vault.chats.filter(x=>x.storyId!==storyId);
+  vault.personas=vault.personas.filter(x=>x.storyId!==storyId&&x.id!==story.personaId);
+  const charIds=new Set([story.primaryCharacterId,...(story.characterIds||[])].filter(Boolean));
+  vault.characters=vault.characters.filter(x=>x.storyId!==storyId&&!charIds.has(x.id));
+  vault.stories=vault.stories.filter(x=>x.id!==storyId);vault.updatedAt=new Date().toISOString();
+  if(activeStoryId===storyId){activeStoryId=null;activeChatId=null;}
+  await saveVaultAtomic(db,vault);closeDeleteStory();showLibrary();
+}
 function showLibrary(){
   $("dataView").hidden=true;$("chatView").hidden=true;$("emptyState").hidden=false;
   $("emptyState").querySelector("h1").textContent="Your story library.";
@@ -141,7 +161,14 @@ function showLibrary(){
   let library=$("storyLibrary");
   if(!library){library=document.createElement("div");library.id="storyLibrary";library.className="story-library";$("emptyState").insertBefore(library,$("emptyState").querySelector(".action-row"));}
   library.replaceChildren();
-  for(const choice of listStoryChoices(vault)){const b=document.createElement("button");b.type="button";b.className="library-card";const title=document.createElement("strong"),meta=document.createElement("span");title.textContent=choice.title;meta.textContent=choice.characterName+" · Playing as "+choice.personaName;b.append(title,meta);b.onclick=()=>{const chat=chooseInitialChat(vault,choice.storyId);renderStory(choice.storyId,chat?.id);};library.append(b);}
+  for(const choice of listStoryChoices(vault)){
+    const card=document.createElement("div");card.className="library-card";
+    const open=document.createElement("button");open.type="button";open.className="library-open";
+    const title=document.createElement("strong"),meta=document.createElement("span");title.textContent=choice.title;meta.textContent=choice.characterName+" · Playing as "+choice.personaName;open.append(title,meta);
+    open.onclick=()=>{const chat=chooseInitialChat(vault,choice.storyId);renderStory(choice.storyId,chat?.id);};
+    const del=document.createElement("button");del.type="button";del.className="library-delete";del.textContent="Delete";del.setAttribute("aria-label","Delete "+choice.title);del.onclick=()=>openDeleteStory(choice.storyId);
+    card.append(open,del);library.append(card);
+  }
   $("libraryNavButton").classList.add("active");$("storyNavButton").classList.remove("active");
 }
 function showDataView(kind){
