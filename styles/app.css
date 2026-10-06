@@ -58,3 +58,24 @@
 .settings-card-wide{width:min(760px,calc(100vw - 24px));max-height:90dvh;overflow:auto}.settings-section{display:grid;gap:10px;padding:14px 0;border-bottom:1px solid #342027}.settings-section h3{margin:0;font:700 18px Georgia,serif;color:#f7e8ec}.settings-inline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.connection-test-status{font-size:12px;color:#d8b9c1;overflow-wrap:anywhere}.hard-limits-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px}.hard-limit-item{font-size:12px;color:#eadde0}.hard-limit-item::before{content:'• ';color:#b43b58}.check-row{display:flex!important;align-items:flex-start;gap:9px}.check-row input{width:auto!important;margin-top:3px}@media(max-width:600px){.hard-limits-list{grid-template-columns:1fr}}
 
 .command-chips{display:flex;gap:5px;overflow-x:auto;padding:5px 1px 1px;scrollbar-width:none}.command-chips::-webkit-scrollbar{display:none}.command-chips button{flex:0 0 auto;border:0;background:transparent;color:#9f8f94;font-size:10px;padding:4px 2px;cursor:pointer}.command-chips button:active{color:#fff0f3}.send-state{display:flex;align-items:center;gap:8px}.writing-state{display:flex;align-items:center;gap:5px;color:#bbaab0;font-size:10px;white-space:nowrap}.stop-generation{border:1px solid #8d2940;background:#241016;color:#ffe7ec;border-radius:10px;padding:9px 13px;font-weight:700}.composer textarea{min-height:112px;resize:vertical}
+
+/* iPhone composer fit: four story actions, compact controls, no horizontal clipping. */
+.story-tools{grid-template-columns:repeat(4,minmax(0,1fr))}
+.story-tools .ghost{min-width:0;padding:8px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.composer,.composer *{min-width:0}
+.composer-tools{gap:8px;align-items:center}
+.send-state{min-width:0;flex-wrap:wrap;justify-content:flex-end}
+.command-chips{max-width:100%;-webkit-overflow-scrolling:touch}
+@media(max-width:430px){
+  .composer{padding:8px 10px calc(8px + var(--safe))}
+  .composer textarea{min-height:96px;max-height:28dvh;font-size:16px;padding:11px}
+  .story-tools{gap:5px}
+  .story-tools .ghost{font-size:10px;min-height:36px;padding:7px 2px}
+  .composer-tools{margin-top:6px}
+  .composer-tools>.ghost{flex:0 0 auto;padding:8px 10px;min-height:38px}
+  .send-state{gap:5px}
+  .send-state .send,.stop-generation{padding:8px 11px;min-height:38px}
+  .writing-state{font-size:9px}
+  .command-chips{gap:7px;padding-top:4px}
+  .command-chips button{font-size:9px;padding:3px 1px}
+}
