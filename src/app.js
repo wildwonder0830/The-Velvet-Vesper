@@ -34,7 +34,7 @@ function bindUi() {
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
   $("elaborateButton").onclick=()=>runStoryTool("elaborate");
-  $("myTurnButton").onclick=()=>runStoryTool("myturn"); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
+  $("myTurnButton").onclick=()=>runStoryTool("myturn"); on("oocButton","click",()=>insertCommand("/ooc ")); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory; on("setupTemplate","change",applyStoryTemplate);
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
   $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("replaceKeyButton","click",beginKeyReplacement); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
@@ -166,8 +166,25 @@ async function runStoryTool(kind){
     elaborate:"[OOC: Elaborate the immediately preceding assistant response with richer sensory detail, character-specific behavior, dialogue, and atmosphere while preserving every established event and fact. Do not advance past its endpoint more than necessary.]"
   };
   if(kind==="myturn"){await generateMyTurnDraft();return;}
-  const input=$("messageInput"),prior=input.value;input.value=prompts[kind];
-  $("composer").requestSubmit();input.value=prior;
+  const instruction=prompts[kind];if(!instruction)return;
+  const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);if(!story||!chat)return;
+  await generateToolReply({story,chat,instruction,label:kind==="continue"?"Continuing…":"Elaborating…"});
+}
+async function generateToolReply({story,chat,instruction,label}){
+  const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
+  if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
+  if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
+  sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus(label,"working");
+  try{
+    const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
+    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable reply.");
+    const ordinal=nextMessageOrdinal(chat.id);
+    vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
+    await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
+  }catch(error){showStatus(error?.name==="AbortError"?"Generation stopped.":`Generation failed: ${error.message}`,"error");}
+  finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
 }
 async function generateMyTurnDraft(){
   if(sending)return;
@@ -182,7 +199,7 @@ async function generateMyTurnDraft(){
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const instruction="[OOC TOOL — MY TURN: Draft Amanda's next possible roleplay turn for the user to review and edit. Write ONLY Amanda's proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond Amanda's proposed response. This is a draft only and must not be treated as sent canon until the user submits it.]";
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
-    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
     if(result.blocked||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable draft.");
     input.value=result.text.trim();
     input.focus({preventScroll:true});
@@ -195,6 +212,7 @@ async function generateMyTurnDraft(){
     sending=false;activeGenerationController=null;setGenerationUi(false);
   }
 }
+function nextMessageOrdinal(chatId){const values=vault.messages.filter(m=>m.chatId===chatId).map(m=>Number(m.ordinal)).filter(Number.isFinite);return (values.length?Math.max(...values):-1)+1;}
 function insertCommand(command){const input=$("messageInput"),start=input.selectionStart??input.value.length,end=input.selectionEnd??start,before=input.value.slice(0,start),after=input.value.slice(end),needsSpace=before&&!/\s$/.test(before);input.value=before+(needsSpace?" ":"")+command+after;const pos=(before+(needsSpace?" ":"")+command).length;input.focus({preventScroll:true});input.setSelectionRange(pos,pos);}
 function stopGeneration(){
   if(activeGenerationController&&!activeGenerationController.signal.aborted){
@@ -275,9 +293,9 @@ async function generateReplyForMessage({message,story,chat}){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
-    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
     if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn't produce a valid reply.");}
-    const ordinal=Math.max(-1,...vault.messages.filter(m=>m.chatId===chat.id).map(m=>Number(m.ordinal)??-1))+1;
+    const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     retryMessageId=null;await saveVaultAtomic(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);const composer=$("messageInput");composer.hidden=false;composer.focus({preventScroll:true});
   }catch(error){retryMessageId=message.id;showStatus(`Generation failed: ${error.message}`,"error");showRetry(true);}
@@ -292,7 +310,7 @@ async function sendTurn(event){
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
-  const now=new Date().toISOString(),ordinal=vault.messages.filter(m=>m.chatId===chat.id).length;
+  const now=new Date().toISOString(),ordinal=nextMessageOrdinal(chat.id);
   const userMessage={id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now};
   vault.messages.push(userMessage);
   $("messageInput").value="";await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);$("messageInput").focus({preventScroll:true});
@@ -427,5 +445,5 @@ function jumpMessagesToLatest(smooth=false){
 function updateScrollBottomButton(){const scroller=$("messages"),b=$("scrollBottomButton");if(!scroller||!b)return;const distance=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight;b.hidden=distance<80;}
 function bindMessageScroller(){const scroller=$("messages");if(!scroller||scroller.dataset.bound==="1")return;scroller.dataset.bound="1";scroller.addEventListener("scroll",updateScrollBottomButton,{passive:true});}
 function renderStory(storyId,chatId){rememberTab("story");renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
- const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=[...rows].sort((x,y)=>(Number(y.ordinal)??0)-(Number(x.ordinal)??0))[0];if(!sending&&latest?.role==="user"){retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){showRetry(false);}bindMessageScroller();jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);setTimeout(()=>{jumpMessagesToLatest(false);updateScrollBottomButton();},80);});});}
+ const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))).sort((x,y)=>{const xo=Number(x.ordinal),yo=Number(y.ordinal);if(Number.isFinite(xo)&&Number.isFinite(yo)&&xo!==yo)return xo-yo;return String(x.createdAt||"").localeCompare(String(y.createdAt||""));});$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=rows.at(-1);if(!sending&&!rows.length&&s?.openingScene){retryMessageId=null;retryOpeningStoryId=s.id;showRetry(true,"Generate Opening");showStatus("This story has no opener yet.","notice");}else if(!sending&&latest?.role==="user"){retryOpeningStoryId=null;retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){if(retryOpeningStoryId===storyId)retryOpeningStoryId=null;showRetry(false);}bindMessageScroller();jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);setTimeout(()=>{jumpMessagesToLatest(false);updateScrollBottomButton();},80);});});}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});
