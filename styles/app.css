@@ -45,7 +45,7 @@
 /* Keep the story scroller clipped to its grid row. Without this, the message column can grow behind the sticky composer and fixed nav, exposing unscrolled story text below the controls. */
 .chat-view{height:100%;min-height:0;overflow:hidden}.messages{min-height:0;overflow-y:auto;overscroll-behavior:contain}.composer{z-index:8}.workspace{overflow:hidden}
 
-.message-controls{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:8px}.message-edit{border:0;background:transparent;color:#d8a9b5;font-size:11px;padding:3px 6px;cursor:pointer}.message-edit:hover,.message-edit:focus{color:#fff0f3}.edited-tag{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#8f7d82}
+.message-controls{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:8px}.message-edit{border:0;background:transparent;color:#d8a9b5;font-size:11px;padding:3px 6px;cursor:pointer}.message-edit:hover,.message-edit:focus{color:#fff0f3}.message-delete{color:#d87b8e}.message-delete:hover,.message-delete:focus{color:#ff9daf}.edited-tag{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#8f7d82}
 
 .status.working{position:sticky;bottom:calc(190px + var(--safe));z-index:9;width:max-content;max-width:calc(100% - 28px);margin:0 14px 8px;padding:8px 12px;border:1px solid #7f243b;border-radius:999px;background:#160c10ee;color:#f7e8ec;box-shadow:0 8px 24px #0009,0 0 18px #a51d3722;backdrop-filter:blur(12px);font-size:12px;letter-spacing:.03em;display:flex;align-items:center;gap:8px}.writing-dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:vesperPulse 1s ease-in-out infinite}@keyframes vesperPulse{0%,100%{opacity:.3;transform:scale(.75)}50%{opacity:1;transform:scale(1.15)}}
 
@@ -60,7 +60,7 @@
 .command-chips{display:flex;gap:5px;overflow-x:auto;padding:5px 1px 1px;scrollbar-width:none}.command-chips::-webkit-scrollbar{display:none}.command-chips button{flex:0 0 auto;border:0;background:transparent;color:#9f8f94;font-size:10px;padding:4px 2px;cursor:pointer}.command-chips button:active{color:#fff0f3}.send-state{display:flex;align-items:center;gap:8px}.writing-state{display:flex;align-items:center;gap:5px;color:#bbaab0;font-size:10px;white-space:nowrap}.stop-generation{border:1px solid #8d2940;background:#241016;color:#ffe7ec;border-radius:10px;padding:9px 13px;font-weight:700}.composer textarea{min-height:112px;resize:vertical}
 
 /* iPhone composer fit: four story actions, compact controls, no horizontal clipping. */
-.story-tools{grid-template-columns:repeat(4,minmax(0,1fr))}
+.story-tools{grid-template-columns:repeat(3,minmax(0,1fr))}
 .story-tools .ghost{min-width:0;padding:8px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .composer,.composer *{min-width:0}
 .composer-tools{gap:8px;align-items:center}
@@ -85,7 +85,7 @@
   .storybar{min-width:0;gap:8px;padding:10px 12px}
   .storybar>div:first-child{min-width:0;overflow:hidden}
   .storybar h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .story-tools{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important;width:100%!important}
+  .story-tools{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important;width:100%!important}
   .story-tools .ghost{width:100%!important;max-width:100%!important;min-width:0!important;overflow:visible!important;text-overflow:clip!important}
   .composer{width:100%;max-width:100vw;overflow:hidden}
   .composer-tools{width:100%;display:flex;align-items:center;justify-content:space-between}
