@@ -2,6 +2,7 @@ import { openVesperDb, loadVault, saveVaultAtomic } from "./storage/vault-store.
 import { previewImport, prepareImport, commitPreparedImport } from "./migration/import-service.js";
 import { makeId } from "./schema.js";
 import { createMemory } from "./memory/memory-manager.js";
+import { recordKnowledge } from "./knowledge/ledger.js";
 import { runTurn } from "./chat/turn-engine.js";
 import { setDeviceSecret, getDeviceSecret, DEVICE_SECRET_NAMES } from "./settings/secret-store.js";
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
@@ -55,6 +56,13 @@ async function createStarterStory(){
       ["healing","Amanda's own returning supernatural power progressively restores her suppressed healing as the bond strengthens."]
     ];
     vault.memoryEntries.push(...pinnedCanon.map(([key,text])=>createMemory({storyId,chatId,kind:"canon",text,data:{key},pinned:true},now)));
+    const twins=characters.filter(x=>x.name==="Aedan Blackthorn"||x.name==="Aeron Blackthorn");
+    for(const twin of twins){
+      vault.knowledgeEntries.push(
+        recordKnowledge({storyId,knowerId:twin.id,subjectId:personaId,factKey:"fated-mate",value:true,learnedAt:now},now),
+        recordKnowledge({storyId,knowerId:twin.id,subjectId:personaId,factKey:"opening-witness",value:"Directly witnessed the favored half-sister deliberately cause Amanda to fall.",learnedAt:now},now)
+      );
+    }
   }
   vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);showStatus(blackthorn?"The Blackthorn Prophecy is ready. The wolves are free.":"Story created. Cast identities are isolated and ready for canon.","notice");
 }
