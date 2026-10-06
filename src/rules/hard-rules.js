@@ -20,7 +20,7 @@ export function applyHardRuleSanitizers(text) {
   if (typeof text !== "string") return text;
   // Do not silently rename historical chat transcripts. This sanitizer is for
   // generated/editable prompt context, profiles, canon, and future model input.
-  return text.replace(/\bMandy\b/g, "Amanda");
+  return text.replace(/\bMandy\b/gi, "Amanda");
 }
 
 export function findHardRuleViolations(text) {
