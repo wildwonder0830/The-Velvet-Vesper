@@ -9,7 +9,7 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
  const first=await sendOpenRouterChat({model,messages,temperature,maxTokens,signal});let text=extractText(first);
  const continuity={mateBond:Boolean(assembled.mateBondCanon)};let validation=validateModelOutput({text,continuity});
  if(validation.issues.length){
-   const repaired=await sendOpenRouterChat({model,messages:[...messages,{role:"assistant",content:text},{role:"system",content:buildRepairInstruction(validation)}],temperature,maxTokens,signal});
+   const repaired=await sendOpenRouterChat({model,messages:[...messages,{role:"assistant",content:text},{role:"system",content:buildRepairInstruction(validation,{opening})}],temperature,maxTokens,signal});
    text=extractText(repaired);validation=validateModelOutput({text,continuity});
    if(!validation.ok||validation.needsRepair)return {text:"",validation,usage:[first.usage,repaired.usage].filter(Boolean),repaired:true,blocked:true};
    return {text,validation,usage:[first.usage,repaired.usage].filter(Boolean),repaired:true,blocked:false};
