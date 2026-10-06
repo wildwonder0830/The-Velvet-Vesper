@@ -2,7 +2,7 @@ import { findHardRuleViolations } from "../rules/hard-rules.js";
 
 const USER_AGENCY_PATTERNS = [
   /\bAmanda\s+(?:said|says|asked|asks|thought|thinks|felt|feels|decided|decides|realized|realizes)\b/i,
-  /\bAmanda\s+(?:nodded|smiled|laughed|kissed|touched|moved|walked|reached|pulled|pushed|turned)\b/i
+  /\bAmanda\s+(?:kissed|touched|reached\s+for|took|takes|accepted|accepts|agreed|agrees|followed|follows|chose|chooses|decided|decides)\b/i
 ];
 
 const PASSIVE_HANDOFF_PATTERNS = [
@@ -21,7 +21,7 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
   }
 
   for (const pattern of USER_AGENCY_PATTERNS) {
-    if (pattern.test(text)) issues.push({ type: "user-agency", severity: "repair", message: "Model narrated Amanda's side." });
+    if (pattern.test(text)) issues.push({ type: "user-agency", severity: "repair", message: "Model supplied a voluntary or consequential choice for Amanda." });
   }
   for (const pattern of PASSIVE_HANDOFF_PATTERNS) {
     if (pattern.test(text)) issues.push({ type: "passive-handoff", severity: "repair", message: "Model defaulted to passive waiting/hand-off." });
@@ -41,5 +41,5 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
 export function buildRepairInstruction(result, { opening = false } = {}) {
   if (!result?.issues?.length) return "";
   const reasons = result.issues.map(issue => `- ${issue.message || issue.term || issue.type}`).join("\n");
-  return `Rewrite the response without changing the intended story beat. Correct these violations:\n${reasons}\nDo not narrate the user-controlled persona's actions, dialogue, thoughts, feelings, or choices. Preserve established canon and relationship state.${opening ? " For an opening turn, do not use passive handoff language; simply end on the configured completed opening beat without narrating Amanda." : ""}`;
+  return `Rewrite the response without changing the intended story beat. Correct these violations:\n${reasons}\nDo not supply the user-controlled persona's voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential choices. Involuntary, unavoidable, mechanically necessary, or explicitly pre-established events may be narrated. Preserve established canon and relationship state.${opening ? " For an opening turn, do not use passive handoff language; simply end on the configured completed opening beat without narrating Amanda." : ""}`;
 }
