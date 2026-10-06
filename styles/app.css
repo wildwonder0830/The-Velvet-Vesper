@@ -35,3 +35,7 @@
 .library-delete{position:absolute;right:12px;bottom:11px;z-index:2;border:1px solid #652035!important;border-radius:10px!important;background:#220d13!important;color:#c9899a!important;min-width:0!important;padding:7px 10px!important;font-size:11px}
 .library-empty{grid-column:1/-1;border:1px dashed #4a202b;border-radius:16px;padding:28px;color:var(--muted);text-align:center}
 @media(max-width:680px){.story-library{grid-template-columns:1fr}.library-actions{justify-content:stretch}.library-actions button{flex:1}.library-hero h1{font-size:27px}}
+
+#emptyState[hidden],#chatView[hidden],#dataView[hidden]{display:none!important}
+.topbar-spacer{width:42px;height:42px;display:block}
+.library-delete{display:grid!important;place-items:center;width:38px;height:38px;padding:0!important;font-size:18px!important;line-height:1}
