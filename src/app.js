@@ -409,6 +409,28 @@ async function editUserMessage(message){
   message.text=text;message.editedAt=new Date().toISOString();vault.updatedAt=message.editedAt;
   await saveVaultAtomic(db,vault);renderStory(message.storyId,message.chatId);showStatus("Post edited. Vesper will use the corrected version from now on.","notice");
 }
+async function deleteMessageBranch(message){
+  if(sending){showStatus("Wait for Vesper to finish writing before deleting a post.","notice");return;}
+  const targetOrdinal=Number(message.ordinal);
+  const doomed=vault.messages.filter(m=>m.chatId===message.chatId&&(Number.isFinite(targetOrdinal)?Number(m.ordinal)>=targetOrdinal:m.id===message.id));
+  if(!doomed.length)return;
+  const laterCount=Math.max(0,doomed.length-1);
+  const prompt=laterCount
+    ? `Delete this post and the ${laterCount} later post${laterCount===1?"":"s"} that depend on it?`
+    : "Delete this post from the story?";
+  if(!window.confirm(prompt))return;
+  const doomedIds=new Set(doomed.map(m=>m.id));
+  vault.messages=vault.messages.filter(m=>!doomedIds.has(m.id));
+  vault.memoryEntries=(vault.memoryEntries||[]).filter(entry=>!(entry.sourceMessageIds||[]).some(id=>doomedIds.has(id)));
+  vault.milestones=(vault.milestones||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
+  vault.knowledgeEntries=(vault.knowledgeEntries||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
+  vault.statEvents=(vault.statEvents||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
+  retryMessageId=null;retryOpeningStoryId=null;vault.updatedAt=new Date().toISOString();
+  await saveVaultAtomic(db,vault);
+  renderStory(message.storyId,message.chatId);
+  showStatus("Post removed. Vesper no longer sees that deleted branch in chat context.","notice");
+}
+
 async function regenerateAssistantMessage(message){
   if(sending)return;
   const story=vault.stories.find(s=>s.id===message.storyId),chat=vault.chats.find(c=>c.id===message.chatId);if(!story||!chat)return;
@@ -442,7 +464,7 @@ function renderMessage(node,message){
   if(message.role==="user"){
     const body=document.createElement("div");body.className="user-message-text";body.textContent=text;node.append(body);
     const controls=document.createElement("div");controls.className="message-controls";
-    const edit=document.createElement("button");edit.type="button";edit.className="message-edit";edit.textContent="Edit";edit.setAttribute("aria-label","Edit this post");edit.onclick=()=>editUserMessage(message);controls.append(edit);
+    const edit=document.createElement("button");edit.type="button";edit.className="message-edit";edit.textContent="Edit";edit.setAttribute("aria-label","Edit this post");edit.onclick=()=>editUserMessage(message);controls.append(edit);const del=document.createElement("button");del.type="button";del.className="message-edit";del.textContent="Delete";del.setAttribute("aria-label","Delete this post and later dependent posts");del.onclick=()=>deleteMessageBranch(message);controls.append(del);
     if(message.editedAt){const tag=document.createElement("small");tag.className="edited-tag";tag.textContent="edited";controls.append(tag);}
     node.append(controls);return;
   }
@@ -459,7 +481,7 @@ function renderMessage(node,message){
     if(last<paragraph.length)block.append(document.createTextNode(paragraph.slice(last)));
     node.append(block);
   }
-  const controls=document.createElement("div");controls.className="message-controls assistant-controls";const regen=document.createElement("button");regen.type="button";regen.className="message-edit";regen.textContent="Regenerate";regen.onclick=()=>regenerateAssistantMessage(message);controls.append(regen);node.append(controls);
+  const controls=document.createElement("div");controls.className="message-controls assistant-controls";const regen=document.createElement("button");regen.type="button";regen.className="message-edit";regen.textContent="Regenerate";regen.onclick=()=>regenerateAssistantMessage(message);controls.append(regen);const del=document.createElement("button");del.type="button";del.className="message-edit";del.textContent="Delete";del.setAttribute("aria-label","Delete this post and later dependent posts");del.onclick=()=>deleteMessageBranch(message);controls.append(del);node.append(controls);
 }
 function jumpMessagesToLatest(smooth=false){
   const scroller=$("messages");if(!scroller)return;
