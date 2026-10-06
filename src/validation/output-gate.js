@@ -46,8 +46,11 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
   };
 }
 
-export function buildRepairInstruction(result, { opening = false } = {}) {
+export function buildRepairInstruction(result, { opening = false, personaDraft = false } = {}) {
   if (!result?.issues?.length) return "";
   const reasons = result.issues.map(issue => `- ${issue.message || issue.term || issue.type}`).join("\n");
-  return `Rewrite the response without changing the intended story beat. Correct these violations:\n${reasons}\nDo not supply the user-controlled persona's voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential choices. Involuntary, unavoidable, mechanically necessary, or explicitly pre-established events may be narrated. Preserve established canon and relationship state.${opening ? " For an opening turn, do not use passive handoff language; simply end on the configured completed opening beat without narrating Amanda." : ""}`;
+  const agencyRule=personaDraft
+    ? "This is a MY TURN draft: write only Amanda's proposed turn and do not write model-controlled characters' dialogue, actions, thoughts, or reactions."
+    : "Do not supply the user-controlled persona's voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential choices. Involuntary, unavoidable, mechanically necessary, or explicitly pre-established events may be narrated.";
+  return `Rewrite the response without changing the intended story beat. Correct these violations:\n${reasons}\n${agencyRule} Preserve established canon and relationship state.${opening ? " For an opening turn, do not use passive handoff language; simply end on the configured completed opening beat without narrating Amanda." : ""}`;
 }
