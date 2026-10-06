@@ -14,6 +14,13 @@ const PASSIVE_HANDOFF_PATTERNS = [
 
 export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "" }) {
   const issues = [];
+  if (!String(text || "").trim()) {
+    issues.push({
+      type: "empty-output",
+      severity: "repair",
+      message: "Model returned no visible reply text. Produce the requested roleplay prose in the assistant message content."
+    });
+  }
   for (const violation of findHardRuleViolations(text)) issues.push({ type: "hard-rule", severity: "block", ...violation });
 
   for (const term of forbiddenTerms) {
