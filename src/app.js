@@ -107,7 +107,7 @@ async function createStarterStory(){
         vault.messages.push({id:makeId("message"),storyId,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
         await saveVaultAtomic(db,vault);renderStory(storyId,chatId);showStatus(result.repaired?"Opening repaired before display.":"","notice");
       }catch(error){showStatus(`Story created, but opening generation failed: ${error.message}`,"error");}
-      finally{sending=false;$("sendButton").disabled=false;}
+      finally{sending=false;activeGenerationController=null;$("sendButton").disabled=false;$("sendButton").hidden=false;$("stopButton").hidden=true;$("writingState").hidden=true;}
     }else showStatus("The Blackthorn Prophecy is ready. Add your OpenRouter key and model in Settings, then begin when ready.","notice");
   }else showStatus("Story created. Cast identities are isolated and ready for canon.","notice");
 }
@@ -151,7 +151,7 @@ async function retryFailedTurn(){
   const story=vault.stories.find(s=>s.id===message.storyId),chat=vault.chats.find(c=>c.id===message.chatId);if(!story||!chat)return;
   await generateReplyForMessage({message,story,chat});
 }
-function showRetry(show){const button=$("retryButton");if(button)button.hidden=!show;}
+function showRetry(show,label="Retry Reply"){const button=$("retryButton");if(button){button.hidden=!show;button.textContent=label;}}
 async function generateReplyForMessage({message,story,chat}){
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
@@ -304,5 +304,5 @@ function jumpMessagesToLatest(smooth=false){const scroller=$("messages");if(!scr
 function updateScrollBottomButton(){const scroller=$("messages"),b=$("scrollBottomButton");if(!scroller||!b)return;const distance=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight;b.hidden=distance<80;}
 function bindMessageScroller(){const scroller=$("messages");if(!scroller||scroller.dataset.bound==="1")return;scroller.dataset.bound="1";scroller.addEventListener("scroll",updateScrollBottomButton,{passive:true});}
 function renderStory(storyId,chatId){rememberTab("story");renderQueryMeter();activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
- const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));bindMessageScroller();jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);updateScrollBottomButton();});});}
+ const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||""))));$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=[...rows].sort((x,y)=>(Number(y.ordinal)??0)-(Number(x.ordinal)??0))[0];if(!sending&&latest?.role==="user"){retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){showRetry(false);}bindMessageScroller();jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);requestAnimationFrame(()=>{jumpMessagesToLatest(false);updateScrollBottomButton();});});}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});
