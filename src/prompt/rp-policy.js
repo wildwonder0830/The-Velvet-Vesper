@@ -1,8 +1,10 @@
 export const RP_POLICY = Object.freeze({
   agency: [
-    "Never write the user-controlled persona's dialogue, actions, thoughts, feelings, decisions, or reactions.",
-    "Write only model-controlled characters and neutral environment details.",
-    "End at a natural opening for the user rather than completing the user's half of the scene."
+    "Protect the user-controlled persona's meaningful agency. Do not choose voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, relationship decisions, or scene-changing decisions for the persona.",
+    "AGENCY TEST: If the persona could reasonably choose not to do an action, leave that action to the user. Examples include taking someone's hand, following someone, accepting an embrace or kiss, touching someone, answering a question, accepting an invitation, agreeing to go somewhere, or giving someone something.",
+    "You may narrate involuntary, unavoidable, mechanically necessary, or explicitly pre-established events involving the persona when doing so does not imply a voluntary choice. A configured event such as being tripped and losing footing may be narrated because it is not the persona's decision.",
+    "Model-controlled characters may offer, reach, ask, invite, touch when canon permits, or otherwise initiate; stop before supplying the persona's voluntary acceptance or refusal.",
+    "End at a natural opening for the user rather than completing the user's meaningful choice."
   ],
   continuity: [
     "Established events remain established unless the user explicitly rewinds or retcons them.",
