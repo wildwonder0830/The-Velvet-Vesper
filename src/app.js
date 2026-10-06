@@ -66,7 +66,21 @@ async function createStarterStory(){
     }
     vault.sceneStates.push(createSceneState({storyId,chatId,location:"Formal pack gathering - mate and future Luna announcement",time:"Opening night",participantIds:[personaId,...twins.map(x=>x.id)],tags:["formal-gathering","public-announcement","future-luna","family-politics","opening-scene"]},now));
   }
-  vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);showStatus(blackthorn?"The Blackthorn Prophecy is ready. The wolves are free.":"Story created. Cast identities are isolated and ready for canon.","notice");
+  vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);
+  if(blackthorn){
+    const model=story.settings?.model||localStorage.getItem("vesper.model"),key=getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY);
+    if(model&&key){
+      sending=true;$("sendButton").disabled=true;showStatus("Vesper is opening the story…","working");
+      try{
+        const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
+        const result=await runTurn({vault,storyId,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true});
+        if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Opening was blocked by a Vesper hard rule.");
+        vault.messages.push({id:makeId("message"),storyId,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
+        await saveVaultAtomic(db,vault);renderStory(storyId,chatId);showStatus(result.repaired?"Opening repaired before display.":"","notice");
+      }catch(error){showStatus(`Story created, but opening generation failed: ${error.message}`,"error");}
+      finally{sending=false;$("sendButton").disabled=false;}
+    }else showStatus("The Blackthorn Prophecy is ready. Add your OpenRouter key and model in Settings, then begin when ready.","notice");
+  }else showStatus("Story created. Cast identities are isolated and ready for canon.","notice");
 }
 function openSettings(){
   const story=vault.stories.find(s=>s.id===activeStoryId)||vault.stories[0];
