@@ -5,7 +5,7 @@ import { createMemory } from "./memory/memory-manager.js";
 import { recordKnowledge } from "./knowledge/ledger.js";
 import { createSceneState } from "./scene/scene-state.js";
 import { runTurn } from "./chat/turn-engine.js";
-import { setDeviceSecret, getDeviceSecret, DEVICE_SECRET_NAMES } from "./settings/secret-store.js";
+import { replaceOpenRouterKey, getDeviceSecret, DEVICE_SECRET_NAMES } from "./settings/secret-store.js";
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
 import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/story-selection.js";
 import { recordUsage } from "./usage/usage-ledger.js";
@@ -37,7 +37,7 @@ function bindUi() {
   $("myTurnButton").onclick=()=>runStoryTool("myturn"); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory;
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
-  $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("recoverKeyButton","click",recoverStoredKey); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
+  $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("replaceKeyButton","click",beginKeyReplacement); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
 }
 
 function backupFilename(){const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")+"_"+[String(d.getHours()).padStart(2,"0"),String(d.getMinutes()).padStart(2,"0")].join("-");return `Vesper_Backup_${stamp}.json`;}
@@ -113,22 +113,22 @@ async function createStarterStory(){
 }
 const VESPER_HARD_LIMITS=["Anal sex or anal penetration","Breath play","Hard choking or strangulation","Suffocation or intentional oxygen restriction","Eroticized loss of consciousness from airway or blood-flow restriction","Electrical stimulation / e-stim","Sexual content involving animals or bestiality","Extreme or torture pain","Crying as an erotic goal, kink, or escalation target","Urine","Feces / scat","Overstimulation","Canine reproductive anatomy, knotting, tie, or bulbus-glandis","Canine genital locking or literal animal mating mechanics","Werewolf/shifter sexual anatomy","Double penetration"];
 function renderHardLimits(){const list=$("hardLimitsList");if(!list)return;list.replaceChildren(...VESPER_HARD_LIMITS.map(text=>{const row=document.createElement("div");row.className="hard-limit-item";row.textContent=text;return row;}));}
-function recoverStoredKey(){const key=getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)||"";$("apiKey").value=key;$("connectionTestStatus").textContent=key?"Stored key recovered.":"No stored key exists on this device.";}
-async function probeOpenRouter(prompt){const key=$("apiKey").value.trim()||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);return data;}
+function renderKeyStatus(){const hasKey=Boolean(getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY));$("apiKeyStatus").textContent=hasKey?"•••••••• stored securely on this device":"No API key stored on this device";$("replaceKeyButton").textContent=hasKey?"Replace API Key":"Add API Key";}
+function beginKeyReplacement(){const row=$("apiKeyReplaceRow"),input=$("apiKey");row.hidden=false;input.value="";input.focus({preventScroll:true});}
+async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=draft||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);return data;}
 async function testModelConnection(){const out=$("connectionTestStatus");out.textContent="Testing…";try{await probeOpenRouter("Reply with exactly: VESPER CONNECTED");out.textContent="✓ Connection successful.";}catch(error){out.textContent=`Connection failed: ${error.message}`;}}
 async function testRpQuality(){const out=$("connectionTestStatus");out.textContent="Running RP quality test…";try{const data=await probeOpenRouter("In one short sentence, write atmospheric gothic roleplay prose about a candlelit hall. No sexual content.");const sample=data?.choices?.[0]?.message?.content?.trim();out.textContent=sample?`RP test: ${sample}`:"RP test connected, but returned no text.";}catch(error){out.textContent=`RP test failed: ${error.message}`;}}
 function openSettings(){
   const story=vault.stories.find(s=>s.id===activeStoryId)||vault.stories[0];
-  $("apiKey").value=getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)||"";
+  $("apiKey").value="";$("apiKeyReplaceRow").hidden=true;renderKeyStatus();
   $("modelName").value=story?.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   const settings=story?.settings||{};$("temperatureSetting").value=settings.temperature??0.9;$("maxTokensSetting").value=settings.maxTokens??1200;$("intimacyPacing").value=settings.intimacyPacing||"balanced";$("requirePlotAfterSex").checked=Boolean(settings.requirePlotAfterSex);renderHardLimits();$("connectionTestStatus").textContent="";
   $("settingsPanel").hidden=false;
 }
 async function saveSettings(){
   const enteredKey=$("apiKey").value.trim();
-  const existingKey=getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY);
-  if(enteredKey) setDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY,enteredKey);
-  else if(existingKey) $("apiKey").value=existingKey;
+  if(!$("apiKeyReplaceRow").hidden&&enteredKey) replaceOpenRouterKey(enteredKey);
+  $("apiKey").value="";$("apiKeyReplaceRow").hidden=true;renderKeyStatus();
   localStorage.setItem("vesper.model",$("modelName").value.trim());
   const story=vault.stories.find(s=>s.id===activeStoryId);
   if(story){story.settings={...(story.settings||{}),model:$("modelName").value.trim(),temperature:Number($("temperatureSetting").value)||0.9,maxTokens:Number($("maxTokensSetting").value)||1200,intimacyPacing:$("intimacyPacing").value,requirePlotAfterSex:$("requirePlotAfterSex").checked};await saveVaultAtomic(db,vault);}
