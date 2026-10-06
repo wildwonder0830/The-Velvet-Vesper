@@ -37,7 +37,7 @@ export function buildStoryContext(vault, storyId) {
     memory: storyMemory(vault, story.id),
     relationships: (vault.relationships || []).filter(r => r.storyId === story.id),
     milestones: (vault.milestones || []).filter(m => m.storyId === story.id && m.status !== "rejected"),
-    sceneState: (vault.sceneStates || []).find(s => s.storyId === story.id) || null,
+    sceneState: [...(vault.sceneStates || [])].filter(s => s.storyId === story.id && s.status !== "superseded").sort((a,b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null,
     knowledge: (vault.knowledgeEntries || []).filter(k => k.storyId === story.id)
   };
 
