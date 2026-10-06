@@ -262,10 +262,11 @@ async function sendTurn(event){
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
   const now=new Date().toISOString(),ordinal=vault.messages.filter(m=>m.chatId===chat.id).length;
-  vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now});
+  const userMessage={id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now};
+  vault.messages.push(userMessage);
   $("messageInput").value="";await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);$("messageInput").focus({preventScroll:true});
-  retryMessageId=vault.messages.at(-1)?.id||null;
-  await generateReplyForMessage({message:vault.messages.at(-1),story,chat});
+  retryMessageId=userMessage.id;
+  await generateReplyForMessage({message:userMessage,story,chat});
 }
 function changeStory(e){const storyId=e.target.value,chat=chooseInitialChat(vault,storyId);renderStory(storyId,chat?.id);}
 function renderStoryPicker(){const picker=$("storyPicker"),choices=listStoryChoices(vault);picker.innerHTML="";for(const choice of choices){const option=document.createElement("option");option.value=choice.storyId;option.textContent=`${choice.title} — ${choice.characterName} / ${choice.personaName}`;picker.appendChild(option);}if(activeStoryId)picker.value=activeStoryId;picker.hidden=choices.length<2;}
