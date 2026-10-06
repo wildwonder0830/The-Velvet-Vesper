@@ -156,20 +156,26 @@ async function confirmDeleteStory(){
 }
 function showLibrary(){
   $("dataView").hidden=true;$("chatView").hidden=true;$("emptyState").hidden=false;
-  $("emptyState").querySelector("h1").textContent="Your story library.";
-  $("emptyState").querySelector("p").textContent=vault.stories.length?"Choose a story, import another vault, or begin a new Vesper story.":"Import a Noctis vault or begin a new Vesper story.";
-  let library=$("storyLibrary");
-  if(!library){library=document.createElement("div");library.id="storyLibrary";library.className="story-library";$("emptyState").insertBefore(library,$("emptyState").querySelector(".action-row"));}
-  library.replaceChildren();
-  for(const choice of listStoryChoices(vault)){
-    const card=document.createElement("div");card.className="library-card";
+  const library=$("storyLibrary");library.replaceChildren();
+  const choices=listStoryChoices(vault);
+  if(!choices.length){const empty=document.createElement("div");empty.className="library-empty";empty.textContent="No stories yet. Create one or import your Noctis vault.";library.append(empty);}
+  for(const choice of choices){
+    const story=vault.stories.find(s=>s.id===choice.storyId);
+    const chatCount=vault.chats.filter(x=>x.storyId===choice.storyId).length;
+    const messageCount=vault.messages.filter(x=>x.storyId===choice.storyId).length;
+    const cast=(story?.characterIds||[]).map(id=>vault.characters.find(c=>c.id===id)?.name).filter(Boolean);
+    const card=document.createElement("article");card.className="library-card";
     const open=document.createElement("button");open.type="button";open.className="library-open";
-    const title=document.createElement("strong"),meta=document.createElement("span");title.textContent=choice.title;meta.textContent=choice.characterName+" · Playing as "+choice.personaName;open.append(title,meta);
+    const title=document.createElement("strong");title.textContent=choice.title;
+    const castLine=document.createElement("span");castLine.className="library-cast";castLine.textContent=cast.length?cast.join(" · "):choice.characterName;
+    const counts=document.createElement("span");counts.className="library-counts";counts.textContent=chatCount+" "+(chatCount===1?"chat":"chats")+" · "+messageCount+" saved "+(messageCount===1?"message":"messages");
+    const cta=document.createElement("span");cta.className="library-cta";cta.textContent="Open story →";
+    open.append(title,castLine,counts,cta);
     open.onclick=()=>{const chat=chooseInitialChat(vault,choice.storyId);renderStory(choice.storyId,chat?.id);};
     const del=document.createElement("button");del.type="button";del.className="library-delete";del.textContent="Delete";del.setAttribute("aria-label","Delete "+choice.title);del.onclick=()=>openDeleteStory(choice.storyId);
     card.append(open,del);library.append(card);
   }
-  $("libraryNavButton").classList.add("active");$("storyNavButton").classList.remove("active");
+  ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));$("libraryNavButton").classList.add("active");
 }
 function showDataView(kind){
   $("emptyState").hidden=true;$("chatView").hidden=true;$("dataView").hidden=false;
