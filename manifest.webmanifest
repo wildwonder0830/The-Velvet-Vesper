@@ -1,0 +1,10 @@
+{
+  "name": "The Velvet Vesper",
+  "short_name": "Vesper",
+  "description": "Private Story Engine",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#090708",
+  "theme_color": "#090708",
+  "icons": []
+}
