@@ -13,7 +13,7 @@ import { serializePortableBackup } from "./backup/vesper-backup.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
-let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false, retryMessageId = null;
+let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false, retryMessageId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const rememberTab=tab=>{try{localStorage.setItem(LAST_TAB_KEY,tab);}catch{}};
 const lastTab=()=>{try{return localStorage.getItem(LAST_TAB_KEY)||"library";}catch{return "library";}};
@@ -34,7 +34,7 @@ function bindUi() {
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
   $("elaborateButton").onclick=()=>runStoryTool("elaborate");
-  $("myTurnButton").onclick=()=>runStoryTool("myturn");
+  $("myTurnButton").onclick=()=>runStoryTool("myturn"); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory;
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
   $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("recoverKeyButton","click",recoverStoredKey); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
@@ -141,6 +141,9 @@ async function runStoryTool(kind){
   const input=$("messageInput"),prior=input.value;input.value=prompts[kind];
   $("composer").requestSubmit();input.value=prior;
 }
+function insertCommand(command){const input=$("messageInput"),start=input.selectionStart??input.value.length,end=input.selectionEnd??start,before=input.value.slice(0,start),after=input.value.slice(end),needsSpace=before&&!/\s$/.test(before);input.value=before+(needsSpace?" ":"")+command+after;const pos=(before+(needsSpace?" ":"")+command).length;input.focus({preventScroll:true});input.setSelectionRange(pos,pos);}
+function stopGeneration(){if(activeGenerationController&&!activeGenerationController.signal.aborted){activeGenerationController.abort();showStatus("Generation stopped.","notice");}}
+async function regenerateLatestReply(){if(sending)return;const latest=[...vault.messages].filter(m=>m.chatId===activeChatId&&m.role==="assistant").sort((a,b)=>(b.ordinal??0)-(a.ordinal??0))[0];if(!latest){showStatus("There is no Vesper reply to regenerate yet.","notice");return;}await regenerateAssistantMessage(latest);}
 async function retryFailedTurn(){
   if(sending||!retryMessageId)return;
   const message=vault.messages.find(m=>m.id===retryMessageId&&m.role==="user");
@@ -153,10 +156,10 @@ async function generateReplyForMessage({message,story,chat}){
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
-  sending=true;$("sendButton").disabled=true;showRetry(false);showStatus("Vesper is writing…","working");
+  sending=true;$("sendButton").disabled=true;showRetry(false);activeGenerationController=new AbortController();$("stopButton").hidden=false;$("writingState").hidden=false;showStatus("Vesper is writing…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200});
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});
     if(result.blocked||!result.validation?.ok||!result.text?.trim()) throw new Error("Vesper couldn't produce a valid reply.");
     const ordinal=Math.max(-1,...vault.messages.filter(m=>m.chatId===chat.id).map(m=>Number(m.ordinal)??-1))+1;
