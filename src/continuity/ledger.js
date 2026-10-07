@@ -1,4 +1,5 @@
 import { makeId } from "../schema.js";
+import { isMemoryVisible } from "../memory/memory-manager.js";
 
 export const FACT_STATUS = Object.freeze({ CONFIRMED: "confirmed", RETCONNED: "retconned", DISPUTED: "disputed" });
 
@@ -20,7 +21,7 @@ export function createContinuityFact({ storyId, subjectIds = [], category, key, 
 }
 
 export function activeFacts(facts, storyId) {
-  return (facts || []).filter(f => f.storyId === storyId && f.status === FACT_STATUS.CONFIRMED);
+  return (facts || []).filter(f => f.storyId === storyId && f.status === FACT_STATUS.CONFIRMED && isMemoryVisible(f));
 }
 
 export function retconFact(facts, factId, replacement, now = new Date().toISOString()) {
@@ -39,6 +40,7 @@ export function findContinuityConflicts(facts, candidate) {
   return (facts || []).filter(f =>
     f.storyId === candidate.storyId &&
     f.status === FACT_STATUS.CONFIRMED &&
+    isMemoryVisible(f) &&
     f.category === candidate.category &&
     f.key === candidate.key &&
     JSON.stringify(f.value) !== JSON.stringify(candidate.value)

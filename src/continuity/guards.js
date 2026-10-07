@@ -1,3 +1,5 @@
+import { isMemoryVisible } from "../memory/memory-manager.js";
+
 export const CONTINUITY_GUARDS = Object.freeze([
   "Confirmed relationship stages and milestones are facts, not suggestions.",
   "Never describe a confirmed repeated event as a first-time event.",
@@ -12,7 +14,7 @@ export function continuityPrompt({ relationship, milestones = [], facts = [], kn
     guards: CONTINUITY_GUARDS,
     relationship: relationship || null,
     confirmedMilestones: milestones.filter(m => m.status === "confirmed"),
-    confirmedFacts: facts.filter(f => f.status === "confirmed" || f.status === "active"),
+    confirmedFacts: facts.filter(f => isMemoryVisible(f) && (f.status === "confirmed" || f.status === "active")),
     knowledge
   };
 }

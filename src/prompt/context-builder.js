@@ -1,4 +1,5 @@
 import { applyHardRuleSanitizers, findHardRuleViolations, VESPER_HARD_RULES } from "../rules/hard-rules.js";
+import { activeMemory, filterMemoryForModel } from "../memory/memory-manager.js";
 
 const byId = (items, id) => (items || []).find(item => item.id === id) || null;
 
@@ -16,7 +17,7 @@ function scopedLore(vault, story) {
 }
 
 function storyMemory(vault, storyId) {
-  return (vault.memoryEntries || []).filter(entry => entry.storyId === storyId);
+  return activeMemory(vault.memoryEntries,storyId);
 }
 
 export function buildStoryContext(vault, storyId) {
@@ -41,7 +42,7 @@ export function buildStoryContext(vault, storyId) {
     knowledge: (vault.knowledgeEntries || []).filter(k => k.storyId === story.id)
   };
 
-  return sanitizeContext(context);
+  return sanitizeContext(filterMemoryForModel(context,vault.memoryEntries,storyId));
 }
 
 function sanitizeContext(value) {
