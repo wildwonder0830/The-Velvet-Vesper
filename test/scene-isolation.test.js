@@ -25,7 +25,7 @@ function fixture() {
   v.memoryEntries.push({...createMemory({storyId:"s",chatId:"a",kind:"canon",text:"Shared canon remains."}),id:"canon"});
   v.memoryEntries.push({...createMemory({storyId:"s",chatId:"a",kind:"relationship",text:"Shared relationship remains."}),id:"relationship-memory"});
   v.memoryEntries.push({...createMemory({storyId:"s",kind:"character",text:"Shared character memory remains."}),id:"character-memory"});
-  v.relationships=[{id:"relationship",storyId:"s",chatId:"a",stage:"friends"}];
+  v.relationships=[{id:"relationship",storyId:"s",stage:"friends"}];
   v.milestones=[{id:"milestone",storyId:"s",chatId:"a",type:"first_kiss",status:"confirmed",participants:["p","x"],evidence:"The first kiss happened.",verification:{verified:true,completed:true,verifiedBy:"user"}}];
   v.knowledgeEntries.push({id:"shared-knowledge",storyId:"s",factKey:"birthplace",value:"Shared knowledge remains."});
   return v;

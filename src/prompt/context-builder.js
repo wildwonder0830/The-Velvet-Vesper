@@ -26,6 +26,20 @@ function storyMemory(vault, storyId, chatId) {
   });
 }
 
+function relationshipOwnedBy(record, storyId, chatId, parent = null) {
+  if (record?.storyId != null && record.storyId !== storyId) return false;
+  const ownerChatId = record?.chatId ?? parent?.chatId;
+  const chatScoped = ownerChatId != null || ["chat", "scene"].includes(record?.scope);
+  return !chatScoped || Boolean(chatId && ownerChatId === chatId);
+}
+
+function relationshipSourcesVisible(record, vault, storyId, chatId) {
+  const references = [record?.relationshipId, record?.data?.relationshipId].filter(id => id != null);
+  return references.every(id => (vault.relationships || []).some(r => r.id === id &&
+    r.storyId === storyId && relationshipOwnedBy(r, storyId, chatId) &&
+    milestoneDerivedRecordIsCanonical(r, vault, storyId, chatId)));
+}
+
 export function buildStoryContext(vault, storyId, chatId = null) {
   const story = byId(vault.stories, storyId);
   if (!story) throw new Error("Story not found.");
@@ -44,14 +58,14 @@ export function buildStoryContext(vault, storyId, chatId = null) {
     persona,
     characters,
     lore: scopedLore(vault, story),
-    memory: storyMemory(vault, story.id, chatId).filter(m => milestoneDerivedRecordIsCanonical(m, vault, storyId, chatId)),
-    relationships: (vault.relationships || []).filter(r => r.storyId === story.id && milestoneDerivedRecordIsCanonical(r, vault, storyId, chatId)).map(r =>
-      Array.isArray(r.establishedFacts) ? { ...r, establishedFacts: r.establishedFacts.filter(f => milestoneDerivedRecordIsCanonical(f, vault, storyId, chatId)) } : r),
+    memory: storyMemory(vault, story.id, chatId).filter(m => relationshipSourcesVisible(m, vault, storyId, chatId) && milestoneDerivedRecordIsCanonical(m, vault, storyId, chatId)),
+    relationships: (vault.relationships || []).filter(r => r.storyId === story.id && relationshipOwnedBy(r, storyId, chatId) && milestoneDerivedRecordIsCanonical(r, vault, storyId, chatId)).map(r =>
+      Array.isArray(r.establishedFacts) ? { ...r, establishedFacts: r.establishedFacts.filter(f => relationshipOwnedBy(f, storyId, chatId, r) && relationshipSourcesVisible(f, vault, storyId, chatId) && milestoneDerivedRecordIsCanonical(f, vault, storyId, chatId)) } : r),
     milestones: canonicalMilestones(vault, storyId, chatId),
     sceneState: chatId ? [...(vault.sceneStates || [])].filter(s => s.storyId === story.id && s.chatId === chatId && s.status !== "superseded").sort((a,b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null : null,
     knowledge: (vault.knowledgeEntries || []).filter(k => k.storyId === story.id &&
       (k.chatId || ["legacy-ledger", "scene"].includes(k.kind) || ["chat", "scene"].includes(k.scope)
-        ? Boolean(chatId && k.chatId === chatId) : true) && milestoneDerivedRecordIsCanonical(k, vault, storyId, chatId))
+        ? Boolean(chatId && k.chatId === chatId) : true) && relationshipSourcesVisible(k, vault, storyId, chatId) && milestoneDerivedRecordIsCanonical(k, vault, storyId, chatId))
   };
 
   return sanitizeContext(filterMemoryForModel(context,vault.memoryEntries,storyId));
