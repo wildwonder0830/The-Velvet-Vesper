@@ -138,8 +138,12 @@ async function handleImportFile(e){
   const file=e.target.files?.[0]; if(!file)return;
   try{const source=JSON.parse(await file.text()), preview=previewImport(source); preparedImport=prepareImport(source);
     const counts=preview.counts||preparedImport.preview?.counts||{}; $("importPreview").hidden=false;
-    $("importPreview").innerHTML=`<strong>Import preview</strong><p>${Object.entries(counts).map(([k,v])=>`${k}: ${v}`).join(" · ")}</p><p>No existing Vesper data changes until you confirm.</p><button class="primary" id="confirmImport">Confirm Import</button>`;
-    $("confirmImport").onclick=confirmImport;
+    const heading=document.createElement("strong"),countText=document.createElement("p"),notice=document.createElement("p"),button=document.createElement("button");
+    heading.textContent="Import preview";
+    countText.textContent=Object.entries(counts).map(([k,v])=>`${k}: ${v}`).join(" · ");
+    notice.textContent="No existing Vesper data changes until you confirm.";
+    button.className="primary";button.id="confirmImport";button.textContent="Confirm Import";button.onclick=confirmImport;
+    $("importPreview").replaceChildren(heading,countText,notice,button);
   }catch(error){$("importPreview").hidden=false;$("importPreview").textContent=`Import error: ${error.message}`;}
 }
 async function confirmImport(){if(!preparedImport)return;const button=$("confirmImport");if(button){button.disabled=true;button.textContent="Importing…";}try{await commitPreparedImport(db,preparedImport);vault=await loadVault(db);preparedImport=null;const preview=$("importPreview");preview.hidden=true;preview.replaceChildren();const input=$("importFile");if(input)input.value="";render();showStatus("Backup imported successfully.","notice");}catch(error){if(button){button.disabled=false;button.textContent="Confirm Import";}showStatus(`Import failed: ${error.message}`,"error");}}
