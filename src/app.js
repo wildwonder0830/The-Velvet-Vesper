@@ -21,10 +21,23 @@ const lastTab=()=>{try{return localStorage.getItem(LAST_TAB_KEY)||"library";}cat
 const rememberStory=storyId=>{try{if(storyId)localStorage.setItem(LAST_STORY_KEY,storyId);}catch{}};
 const lastStoryId=()=>{try{return localStorage.getItem(LAST_STORY_KEY)||"";}catch{return "";}};
 const QUERY_LIMIT=1000;
-function localDayKey(date=new Date()){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,"0"),String(date.getDate()).padStart(2,"0")].join("-");}
-function usageDayKey(entry){const d=new Date(entry.createdAt);return Number.isNaN(d.getTime())?"":localDayKey(d);}
-function queryCountToday(){return (vault?.usageEntries||[]).filter(e=>usageDayKey(e)===localDayKey()).length;}
-function renderQueryMeter(){const el=$("queryCount");if(el)el.textContent=`${queryCountToday().toLocaleString()} / ${QUERY_LIMIT.toLocaleString()}`;}
+const USAGE_RESET_TIME_ZONE="America/Los_Angeles";
+const USAGE_RESET_HOUR=17;
+const usageDateTimeFormatter=new Intl.DateTimeFormat("en-CA",{timeZone:USAGE_RESET_TIME_ZONE,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",hourCycle:"h23"});
+function usageCycleKey(date=new Date()){
+  const parts=Object.fromEntries(usageDateTimeFormatter.formatToParts(date).filter(part=>part.type!=="literal").map(part=>[part.type,part.value]));
+  let y=Number(parts.year),m=Number(parts.month),d=Number(parts.day);
+  const hour=Number(parts.hour);
+  if(!Number.isFinite(y)||!Number.isFinite(m)||!Number.isFinite(d)||!Number.isFinite(hour))return "";
+  if(hour<USAGE_RESET_HOUR){
+    const prior=new Date(Date.UTC(y,m-1,d)-86400000);
+    y=prior.getUTCFullYear();m=prior.getUTCMonth()+1;d=prior.getUTCDate();
+  }
+  return [y,String(m).padStart(2,"0"),String(d).padStart(2,"0")].join("-");
+}
+function usageCycleKeyForEntry(entry){const d=new Date(entry.createdAt);return Number.isNaN(d.getTime())?"":usageCycleKey(d);}
+function queryCountCurrentCycle(){const cycle=usageCycleKey();return (vault?.usageEntries||[]).filter(e=>usageCycleKeyForEntry(e)===cycle).length;}
+function renderQueryMeter(){const el=$("queryCount");if(el)el.textContent=`${queryCountCurrentCycle().toLocaleString()} / ${QUERY_LIMIT.toLocaleString()}`;}
 function recordTurnUsage(result,{storyId,chatId,model}){const usages=result?.usage||[];for(const usage of usages){vault.usageEntries.push(recordUsage({storyId,chatId,model,promptTokens:usage?.prompt_tokens||0,completionTokens:usage?.completion_tokens||0,cost:null}));}renderQueryMeter();}
 
 function applyVenomousAssistantRole(){
