@@ -18,7 +18,7 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
      text=extractText(repaired);validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText});
      if(validation.ok&&!validation.needsRepair)return {text,validation,usage,repaired:true,blocked:false};
    }
-   return {text:"",validation,usage,repaired:true,blocked:true,issueTypes:[...new Set((validation.issues||[]).map(x=>x.type))]};
+   return {text,blockedText:text,validation,usage,repaired:true,blocked:true,issueTypes:[...new Set((validation.issues||[]).map(x=>x.type))]};
  }
  return {text,validation,usage,repaired:false,blocked:false};
 }
