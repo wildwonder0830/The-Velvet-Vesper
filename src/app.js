@@ -1,6 +1,8 @@
 import { openVesperDb, loadVault, saveVaultAtomic } from "./storage/vault-store.js";
 import { previewImport, prepareImport, commitPreparedImport } from "./migration/import-service.js";
-import { makeId, VESPER_APP_VERSION, VESPER_SCHEMA_VERSION } from "./schema.js";
+import { makeId } from "./schema.js";
+const VESPER_APP_VERSION = "1.1.1";
+const VESPER_SCHEMA_VERSION = 1;
 import { createMemory } from "./memory/memory-manager.js";
 import { recordKnowledge } from "./knowledge/ledger.js";
 import { createSceneState } from "./scene/scene-state.js";
