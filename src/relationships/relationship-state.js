@@ -1,4 +1,5 @@
 import { makeId } from "../schema.js";
+import { canonicalMilestones, milestoneSupportsRelationship } from "../milestones/verifier.js";
 
 export const RELATIONSHIP_STAGES = Object.freeze([
   "strangers","acquaintances","friends","dating","committed","engaged","married","bonded","mated","fated"
@@ -30,7 +31,17 @@ export function addEstablishedFact(relationship, fact, now = new Date().toISOStr
   return { ...relationship, establishedFacts: [...(relationship.establishedFacts || []), normalized], updatedAt: now };
 }
 
-export function setRelationshipStage(relationship, stage, now = new Date().toISOString()) {
+export function setRelationshipStage(relationship, stage, now = new Date().toISOString(), { vault, milestoneId } = {}) {
   if (!RELATIONSHIP_STAGES.includes(stage)) throw new Error("Unknown relationship stage.");
+  if (stage !== relationship.stage && ["dating", "committed", "engaged", "married", "bonded", "mated"].includes(stage) && milestoneId == null) {
+    throw new Error("Relationship canon upgrades require verified milestone evidence.");
+  }
+  if (milestoneId != null) {
+    const milestone = (vault?.milestones || []).find(m => m.id === milestoneId);
+    const canonical = canonicalMilestones(vault, relationship.storyId, milestone?.chatId).find(m => m.id === milestoneId);
+    if (!canonical || !milestoneSupportsRelationship(canonical, relationship, stage)) {
+      throw new Error("Relationship stage requires a verified canonical milestone for the same participants and stage.");
+    }
+  }
   return { ...relationship, stage, updatedAt: now };
 }

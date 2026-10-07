@@ -6,6 +6,7 @@ import { continuityPrompt } from "../continuity/guards.js";
 import { selectRecentMessages } from "../chat/history-window.js";
 import { compileMateBondPrompt } from "../relationships/mate-bond.js";
 import { filterMemoryForModel } from "../memory/memory-manager.js";
+import { milestoneSupportsRelationship } from "../milestones/verifier.js";
 
 export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], storySettings = {}, oocInstruction = "", maxRecentMessages = 40 }) {
   const context=buildStoryContext(vault,storyId,chatId);
@@ -13,9 +14,10 @@ export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], s
   if(!chat) throw new Error("Chat not found in active story.");
   const recentMessages=selectRecentMessages(filterMemoryForModel((vault.messages||[]).filter(m=>m.storyId===storyId&&m.chatId===chatId),vault.memoryEntries,storyId),{maxMessages:maxRecentMessages});
   const relationship=context.relationships[0]||null;
-  const mateBond=relationship?.stage==="mated"||context.milestones.some(m=>m.type==="mated");
-  const continuity=continuityPrompt({relationship,milestones:context.milestones,facts:context.memory.filter(m=>m.kind==="canon"),knowledge:context.knowledge});
+  const validatedBond=context.milestones.find(m=>m.type==="mated"&&(relationship?milestoneSupportsRelationship(m,relationship):m.participants.includes(context.persona?.id)));
+  const mateBond=relationship?.stage==="mated"||Boolean(validatedBond);
+  const continuity=continuityPrompt({relationship,milestones:context.milestones,facts:context.memory.filter(m=>m.kind==="canon"),knowledge:context.knowledge,vault,storyId,chatId});
   const assembled={precedence:["hardRules","oocInstruction","sexualRedLines","storySettings","agencyAndRpPolicy","canonAndContinuity","mateBondCanon","sceneState","characters","relationship","lore","memory","recentMessages","style"],
-    hardRules:context.hardRules,story:context.story,oocInstruction:String(oocInstruction||"").trim(),sexualRedLines:compileSexualRedLines(),greenLines:compileGreenLines(preferenceLines,storySettings),storySettings,agencyAndRpPolicy:compileRpPolicy(),canonAndContinuity:continuity,mateBondCanon:mateBond?compileMateBondPrompt():null,sceneState:context.sceneState,persona:context.persona,characters:context.characters,relationship,milestones:context.milestones,lore:context.lore,memory:context.memory,recentMessages};
+    hardRules:context.hardRules,story:context.story,oocInstruction:String(oocInstruction||"").trim(),sexualRedLines:compileSexualRedLines(),greenLines:compileGreenLines(preferenceLines,storySettings),storySettings,agencyAndRpPolicy:compileRpPolicy(),canonAndContinuity:continuity,mateBondCanon:mateBond?{...compileMateBondPrompt(),participantIds:validatedBond?.participants||relationship?.participantIds||[]}:null,sceneState:context.sceneState,persona:context.persona,characters:context.characters,relationship,milestones:context.milestones,lore:context.lore,memory:context.memory,recentMessages};
   return filterMemoryForModel(assembled,vault.memoryEntries,storyId);
 }

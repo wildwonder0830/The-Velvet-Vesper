@@ -115,7 +115,7 @@ test("retrieval excludes unlinked duplicate memories and data-only retained copi
   assertNoLeak(vault);
 });
 test("forgetting does not change milestone membership or scene selection",()=>{
-  const vault=fixture();vault.milestones=[{id:"ms",storyId:"s",type:"first_kiss",status:"confirmed",sourceMessageId:"source"}];
+  const vault=fixture();vault.milestones=[{id:"ms",storyId:"s",chatId:"c",type:"first_kiss",status:"confirmed",participants:["p","x"],evidence:"The first kiss happened.",verification:{verified:true,completed:true,verifiedBy:"user"},sourceMessageId:"source"}];
   vault.sceneStates=[{id:"sc",storyId:"s",chatId:"c",location:"Hall",sourceMessageId:"source"}];
   vault.memoryEntries=forgetMemory(vault.memoryEntries,"secret");
   const prompt=assemblePrompt({vault,storyId:"s",chatId:"c"});

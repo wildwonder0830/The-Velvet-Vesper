@@ -1,5 +1,6 @@
 import { applyHardRuleSanitizers, findHardRuleViolations, VESPER_HARD_RULES } from "../rules/hard-rules.js";
 import { activeMemory, filterMemoryForModel } from "../memory/memory-manager.js";
+import { canonicalMilestones, milestoneDerivedRecordIsCanonical } from "../milestones/verifier.js";
 
 const byId = (items, id) => (items || []).find(item => item.id === id) || null;
 
@@ -43,13 +44,14 @@ export function buildStoryContext(vault, storyId, chatId = null) {
     persona,
     characters,
     lore: scopedLore(vault, story),
-    memory: storyMemory(vault, story.id, chatId),
-    relationships: (vault.relationships || []).filter(r => r.storyId === story.id),
-    milestones: (vault.milestones || []).filter(m => m.storyId === story.id && m.status !== "rejected"),
+    memory: storyMemory(vault, story.id, chatId).filter(m => milestoneDerivedRecordIsCanonical(m, vault, storyId, chatId)),
+    relationships: (vault.relationships || []).filter(r => r.storyId === story.id && milestoneDerivedRecordIsCanonical(r, vault, storyId, chatId)).map(r =>
+      Array.isArray(r.establishedFacts) ? { ...r, establishedFacts: r.establishedFacts.filter(f => milestoneDerivedRecordIsCanonical(f, vault, storyId, chatId)) } : r),
+    milestones: canonicalMilestones(vault, storyId, chatId),
     sceneState: chatId ? [...(vault.sceneStates || [])].filter(s => s.storyId === story.id && s.chatId === chatId && s.status !== "superseded").sort((a,b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null : null,
     knowledge: (vault.knowledgeEntries || []).filter(k => k.storyId === story.id &&
       (k.chatId || ["legacy-ledger", "scene"].includes(k.kind) || ["chat", "scene"].includes(k.scope)
-        ? Boolean(chatId && k.chatId === chatId) : true))
+        ? Boolean(chatId && k.chatId === chatId) : true) && milestoneDerivedRecordIsCanonical(k, vault, storyId, chatId))
   };
 
   return sanitizeContext(filterMemoryForModel(context,vault.memoryEntries,storyId));
