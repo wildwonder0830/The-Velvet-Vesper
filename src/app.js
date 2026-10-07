@@ -1,4 +1,5 @@
-import { openVesperDb, loadVault, saveVaultAtomic } from "./storage/vault-store.js";
+import { mountMilestoneNotifications } from "./ui/milestone-notifications.js";
+import { openVesperDb, loadVault, saveVaultAtomic, subscribeVaultSaves } from "./storage/vault-store.js";
 import { previewImport, prepareImport, commitPreparedImport } from "./migration/import-service.js";
 import { makeId } from "./schema.js";
 const VESPER_APP_VERSION = "1.1.1";
@@ -15,6 +16,7 @@ import { serializePortableBackup } from "./backup/vesper-backup.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
+let importingBackup=false;
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, pendingBlockedReview = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const LAST_STORY_KEY="vesper.ui.lastStoryId";
@@ -107,6 +109,13 @@ async function boot() {
   const hadUserData=vaultHasUserData(vault);
   const changed=ensurePreferenceLines()||applyVenomousAssistantRole();
   if(changed&&hadUserData)await saveVaultAtomic(db,vault);
+  const milestoneNotifications=mountMilestoneNotifications();
+  milestoneNotifications.baseline(vault);
+  subscribeVaultSaves(event=>{
+    if(event.dbName!==db.name)return;
+    if(event.kind==="replace" || importingBackup)milestoneNotifications.baseline(event.vault);
+    else milestoneNotifications.observe(event.vault);
+  });
   bindUi(); render();
   if(!hadUserData)showStatus("Vesper loaded an empty local vault. No automatic write was made.","error");
 }
@@ -146,7 +155,7 @@ async function handleImportFile(e){
     $("importPreview").replaceChildren(heading,countText,notice,button);
   }catch(error){$("importPreview").hidden=false;$("importPreview").textContent=`Import error: ${error.message}`;}
 }
-async function confirmImport(){if(!preparedImport)return;const button=$("confirmImport");if(button){button.disabled=true;button.textContent="Importing…";}try{await commitPreparedImport(db,preparedImport);vault=await loadVault(db);preparedImport=null;const preview=$("importPreview");preview.hidden=true;preview.replaceChildren();const input=$("importFile");if(input)input.value="";render();showStatus("Backup imported successfully.","notice");}catch(error){if(button){button.disabled=false;button.textContent="Confirm Import";}showStatus(`Import failed: ${error.message}`,"error");}}
+async function confirmImport(){if(!preparedImport)return;const button=$("confirmImport");if(button){button.disabled=true;button.textContent="Importing…";}try{importingBackup=true;await commitPreparedImport(db,preparedImport);vault=await loadVault(db);preparedImport=null;const preview=$("importPreview");preview.hidden=true;preview.replaceChildren();const input=$("importFile");if(input)input.value="";render();showStatus("Backup imported successfully.","notice");}catch(error){if(button){button.disabled=false;button.textContent="Confirm Import";}showStatus(`Import failed: ${error.message}`,"error");}finally{importingBackup=false;}}
 function applyStoryTemplate(){
   const template=$("setupTemplate")?.value;
   if(template==="blackthorn"){
