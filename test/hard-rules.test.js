@@ -9,4 +9,4 @@ test("My Turn rejects meta acknowledgements",()=>{const r=validateModelOutput({t
 
 test("assistant cannot invent Amanda private notes",()=>{const r=validateModelOutput({text:"He scrolled to the next note.\n\n*2. Want him to know I chose him.*",priorUserText:"He read the notes she had written."});assert.equal(r.ok,false);assert.equal(r.issues.some(x=>x.type==="persona-private-authorship"),true);});
 
-test("overstimulation alias is blocked",()=>{const term="\\u0065"+"dging";const r=validateModelOutput({text:term});assert.equal(r.ok,false);assert.equal(r.issues.some(x=>x.type==="sexual-red-line"),true);});
+test("overstimulation alias is blocked",()=>{const term="\u0065"+"dging";const r=validateModelOutput({text:term});assert.equal(r.ok,false);assert.equal(r.issues.some(x=>x.type==="sexual-red-line"),true);});
