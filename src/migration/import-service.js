@@ -1,11 +1,12 @@
-import { detectNoctisV07, inspectNoctisV07, migrateNoctisV07 } from "./noctis-v07.js";
-import { validateVault, normalizeVault } from "../schema.js";
+import { inspectNoctisV07, migrateNoctisV07 } from "./noctis-v07.js";
+import { normalizeVault } from "../schema.js";
 import { loadVault, saveVaultAtomic, replaceVaultAtomic } from "../storage/vault-store.js";
+import { validateVesperBackup, validateNoctisBackup, requireValidBackup } from "../backup/backup-validation.js";
 
 const ARRAY_KEYS=["personas","characters","stories","chats","messages","loreEntries","memoryEntries","milestones","relationships","statDefinitions","statEvents","sceneStates","knowledgeEntries","preferenceLines","usageEntries","migrationLog"];
 
 export function detectImportSource(source) {
-  if (detectNoctisV07(source)) return { type: "noctis-v07", version: "0.7" };
+  if (source?.version === "0.7") return { type: "noctis-v07", version: "0.7" };
   if (source?.format === "the-velvet-vesper-vault") {
     return { type: "vesper", version: source.schemaVersion };
   }
@@ -14,9 +15,13 @@ export function detectImportSource(source) {
 
 export function previewImport(source) {
   const detected = detectImportSource(source);
-  if (detected.type === "noctis-v07") return { detected, ...inspectNoctisV07(source) };
+  if (detected.type === "noctis-v07") {
+    const validation=validateNoctisBackup(source);
+    if(!validation.ok)return {detected,valid:false,errors:validation.errors};
+    return { detected, valid:true, ...inspectNoctisV07(source) };
+  }
   if (detected.type === "vesper") {
-    const validation = validateVault(source);
+    const validation = validateVesperBackup(source);
     return {
       detected,
       valid: validation.ok,
@@ -31,10 +36,14 @@ export function previewImport(source) {
 
 export function prepareImport(source) {
   const detected = detectImportSource(source);
-  if (detected.type === "noctis-v07") return migrateNoctisV07(source);
+  if (detected.type === "noctis-v07") {
+    requireValidBackup(validateNoctisBackup(source),"Noctis");
+    const prepared=migrateNoctisV07(source);
+    requireValidBackup(validateVesperBackup(prepared.vault),"migrated Noctis");
+    return prepared;
+  }
   if (detected.type === "vesper") {
-    const validation = validateVault(source);
-    if (!validation.ok) throw new Error(validation.errors.join(" "));
+    requireValidBackup(validateVesperBackup(source),"Vesper");
     return { vault: structuredClone(source), preview: previewImport(source), warnings: [], importMode: "replace" };
   }
   throw new Error("Unsupported backup format. Nothing was changed.");
@@ -64,9 +73,12 @@ export function mergeVaults(currentVault, incomingVault, now=new Date().toISOStr
 
 export async function commitPreparedImport(db, prepared) {
   if (!prepared?.vault) throw new Error("No prepared import to commit.");
+  requireValidBackup(validateVesperBackup(prepared.vault),"Vesper");
+  if(!["merge","replace"].includes(prepared.importMode))throw new Error("Invalid backup import mode. Nothing was changed.");
   if(prepared.importMode==="merge"){
     const current=await loadVault(db);
     const merged=mergeVaults(current,prepared.vault);
+    requireValidBackup(validateVesperBackup(merged),"merged Vesper");
     return saveVaultAtomic(db,merged);
   }
   return replaceVaultAtomic(db, prepared.vault);

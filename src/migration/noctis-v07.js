@@ -1,4 +1,5 @@
 import { emptyVault, makeId } from "../schema.js";
+import { validateNoctisBackup, requireValidBackup } from "../backup/backup-validation.js";
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -58,6 +59,7 @@ function pushLore(vault, { scope, characterId = null, storyId = null, lore = [],
 }
 
 export function inspectNoctisV07(source) {
+  requireValidBackup(validateNoctisBackup(source),"Noctis");
   if (!detectNoctisV07(source)) throw new Error("Not a Noctis v0.7 vault backup.");
 
   const counts = {

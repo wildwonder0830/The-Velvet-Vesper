@@ -1,4 +1,5 @@
 import { validateVault } from "../schema.js";
+import { validateVesperBackup, requireValidBackup } from "./backup-validation.js";
 const VESPER_APP_VERSION = "1.1.1";
 
 const SECRET_KEYS = new Set([
@@ -32,8 +33,9 @@ export function serializePortableBackup(vault) {
 }
 
 export function parseVesperBackup(text) {
-  const parsed = JSON.parse(text);
-  const validation = validateVault(parsed);
-  if (!validation.ok) throw new Error(`Invalid Vesper backup: ${validation.errors.join(" ")}`);
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch { throw new Error("Invalid Vesper backup JSON. The file is incomplete or damaged. Nothing was changed."); }
+  requireValidBackup(validateVesperBackup(parsed),"Vesper");
   return parsed;
 }
