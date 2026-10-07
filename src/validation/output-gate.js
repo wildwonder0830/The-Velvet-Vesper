@@ -1,4 +1,5 @@
 import { findHardRuleViolations } from "../rules/hard-rules.js";
+import { findSexualRedLineViolations } from "../rules/sexual-red-lines.js";
 
 const USER_AGENCY_PATTERNS = [
   // Catch clear NEW voluntary/consequential actions. Do not flag simple references
@@ -25,6 +26,7 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
     });
   }
   for (const violation of findHardRuleViolations(text)) issues.push({ type: "hard-rule", severity: "block", ...violation });
+  for (const violation of findSexualRedLineViolations(text)) issues.push({ type: "sexual-red-line", severity: "block", ...violation });
 
   for (const term of forbiddenTerms) {
     if (term && String(text).toLowerCase().includes(String(term).toLowerCase())) {

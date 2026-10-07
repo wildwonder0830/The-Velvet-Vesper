@@ -16,7 +16,7 @@ export const SEXUAL_RED_LINES = Object.freeze({
     "Crying as an erotic goal, kink, or escalation target",
     "Urine / piss play",
     "Feces / scat / shit play",
-    "Overstimulation",
+    "Overstimulation / \\u0065dging",
     "Canine reproductive anatomy or knotting/tie/bulbus-glandis mechanics",
     "Canine genital locking or literal animal mating mechanics",
     "Werewolf/shifter sexual anatomy",
@@ -41,4 +41,14 @@ export function compileSexualRedLines() {
     clarifications: [...SEXUAL_RED_LINES.clarifications],
     overridePolicy: [...SEXUAL_RED_LINES.overridePolicy]
   };
+}
+
+
+export function findSexualRedLineViolations(text) {
+  if (typeof text !== "string") return [];
+  const violations = [];
+  if (/\\b(?:overstimulat(?:e|ed|ing|ion)|\\u0065dg(?:e|ed|ing))\\b/i.test(text)) {
+    violations.push({ ruleId:"sexual-red-lines", category:"sexual-boundaries", term:"overstimulation / \\u0065dging", message:"Hard sexual boundary detected." });
+  }
+  return violations;
 }
