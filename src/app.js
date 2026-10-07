@@ -97,11 +97,16 @@ async function rejectBlockedReply(){
   try{await review.onReject();}catch(error){showStatus(`Could not regenerate blocked reply: ${error.message}`,"error");}
 }
 
+function vaultHasUserData(v){
+  return Boolean((v?.stories||[]).length||(v?.chats||[]).length||(v?.messages||[]).length||(v?.usageEntries||[]).length||(v?.personas||[]).length||(v?.characters||[]).length);
+}
 async function boot() {
   db = await openVesperDb(); vault = await loadVault(db);
+  const hadUserData=vaultHasUserData(vault);
   const changed=ensurePreferenceLines()||applyVenomousAssistantRole();
-  if(changed)await saveVaultAtomic(db,vault);
+  if(changed&&hadUserData)await saveVaultAtomic(db,vault);
   bindUi(); render();
+  if(!hadUserData)showStatus("Vesper loaded an empty local vault. No automatic write was made.","error");
 }
 function bindUi() {
   const on=(id,event,handler)=>{const el=$(id);if(el)el.addEventListener(event,handler);};
