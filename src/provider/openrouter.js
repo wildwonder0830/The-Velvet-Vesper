@@ -29,6 +29,15 @@ export async function sendOpenRouterChat({ model, messages, temperature, maxToke
     signal
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data?.error?.message || `OpenRouter request failed (${response.status}).`);
+  if (!response.ok) {
+    const primary=data?.error?.message||`OpenRouter request failed (${response.status}).`;
+    const raw=data?.error?.metadata?.raw||data?.error?.metadata?.message||data?.error?.metadata?.provider_error||"";
+    const provider=data?.error?.metadata?.provider_name||data?.error?.metadata?.provider||"";
+    const detail=[provider&&`provider: ${provider}`,raw].filter(Boolean).join(" · ");
+    const error=new Error(detail?`${primary} — ${detail}`:primary);
+    error.status=response.status;
+    error.providerPayload=data?.error||null;
+    throw error;
+  }
   return data;
 }
