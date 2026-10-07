@@ -15,11 +15,14 @@ import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/
 import { recordUsage } from "./usage/usage-ledger.js";
 import { serializePortableBackup } from "./backup/vesper-backup.js";
 import { normalizeIntimacyStyle } from "./settings/intimacy-style.js";
+import { modelOptions, validateModelId } from "./settings/model-registry.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 let importingBackup=false;
 let settingsFormSnapshot="";
+let settingsModelSnapshot="",settingsModelFormSnapshot="";
+const modelIndependentSignature=()=>JSON.stringify(["temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
 const settingsFormSignature=()=>JSON.stringify(["modelName","temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, pendingBlockedReview = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
@@ -134,6 +137,7 @@ function bindUi() {
   on("oocButton","click",()=>insertCommand("/ooc ")); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory; on("setupTemplate","change",applyStoryTemplate);
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
+  $("modelSelector")?.addEventListener("change",()=>{const selected=$("modelSelector").value;if(selected)$("modelName").value=selected;$("customModelRow").hidden=Boolean(selected);$("modelSelectionError").hidden=true;});
   $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("replaceKeyButton","click",beginKeyReplacement); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory; on("blockedReplyClose","click",closeBlockedReplyReview); on("blockedReplyReject","click",rejectBlockedReply); on("blockedReplyAccept","click",acceptBlockedReply);
 }
 
@@ -248,7 +252,7 @@ const VESPER_HARD_LIMITS=["Anal sex or anal penetration","Breath play","Hard cho
 function renderHardLimits(){const list=$("hardLimitsList");if(!list)return;list.replaceChildren(...VESPER_HARD_LIMITS.map(text=>{const row=document.createElement("div");row.className="hard-limit-item";row.textContent=text;return row;}));}
 function renderKeyStatus(){const hasKey=Boolean(getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY));$("apiKeyStatus").textContent=hasKey?"•••••••• stored securely on this device":"No API key stored on this device";$("replaceKeyButton").textContent=hasKey?"Replace API Key":"Add API Key";}
 function beginKeyReplacement(){const row=$("apiKeyReplaceRow"),input=$("apiKey");row.hidden=false;input.value="";input.focus({preventScroll:true});}
-async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=draft||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);const usage=data?.usage||{};vault.usageEntries.push(recordUsage({storyId:activeStoryId,chatId:activeChatId,model,promptTokens:usage.prompt_tokens||0,completionTokens:usage.completion_tokens||0,cost:null}));await saveVaultAtomic(db,vault);renderQueryMeter();return data;}
+async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=draft||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(model!==settingsModelSnapshot.trim()){const validation=validateModelId(model);if(!validation.ok)throw new Error(validation.error);}if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);const usage=data?.usage||{};vault.usageEntries.push(recordUsage({storyId:activeStoryId,chatId:activeChatId,model,promptTokens:usage.prompt_tokens||0,completionTokens:usage.completion_tokens||0,cost:null}));await saveVaultAtomic(db,vault);renderQueryMeter();return data;}
 async function testModelConnection(){const out=$("connectionTestStatus");out.textContent="Testing…";try{await probeOpenRouter("Reply with exactly: VESPER CONNECTED");out.textContent="✓ Connection successful.";}catch(error){out.textContent=`Connection failed: ${error.message}`;}}
 async function testRpQuality(){const out=$("connectionTestStatus");out.textContent="Running RP quality test…";try{const data=await probeOpenRouter("In one short sentence, write atmospheric gothic roleplay prose about a candlelit hall. No sexual content.");const sample=data?.choices?.[0]?.message?.content?.trim();out.textContent=sample?`RP test: ${sample}`:"RP test connected, but returned no text.";}catch(error){out.textContent=`RP test failed: ${error.message}`;}}
 function openSettings(){
@@ -260,6 +264,13 @@ function openSettings(){
   const setHidden=(id,value)=>{const el=$(id);if(el)el.hidden=Boolean(value);};
   setValue("apiKey","");setHidden("apiKeyReplaceRow",true);renderKeyStatus();
   setValue("modelName",story?.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL);
+  const modelSelector=$("modelSelector");
+  if(modelSelector){
+    modelSelector.replaceChildren(...modelOptions().map(entry=>new Option(entry.name,entry.id)),new Option("Custom model ID",""));
+    modelSelector.value=[...modelSelector.options].some(option=>option.value===$("modelName").value)?$("modelName").value:"";
+    $("customModelRow").hidden=Boolean(modelSelector.value);
+  }
+  setHidden("modelSelectionError",true);
   setValue("temperatureSetting",settings.temperature??0.9);
   setValue("maxTokensSetting",settings.maxTokens??1200);
   setValue("intimacyPacing",settings.intimacyPacing||"balanced");
@@ -268,6 +279,8 @@ function openSettings(){
   const cncLine=cncPreferenceLine();
   setChecked("cncToggle",Boolean(cncLine&&settings.enabledPreferenceLineIds?.includes(cncLine.id)));
   settingsFormSnapshot=settingsFormSignature();
+  settingsModelSnapshot=$("modelName")?.value||"";
+  settingsModelFormSnapshot=modelIndependentSignature();
   setText("appVersionLabel",VESPER_APP_VERSION);
   setText("schemaVersionLabel",VESPER_SCHEMA_VERSION);
   setText("vaultStoryCount",(vault?.stories||[]).length);
@@ -281,6 +294,17 @@ async function saveSettings(){
   const enteredKey=apiKeyEl?.value?.trim()||"";
   const styleStory=(vault?.stories||[]).find(s=>s.id===activeStoryId)||(vault?.stories||[])[0]||null;
   const intimacyStyle=normalizeIntimacyStyle($("intimacyStyle")?.value);
+  const modelChanged=(modelEl?.value||"").trim()!==settingsModelSnapshot.trim();
+  const selectedModel=modelChanged?validateModelId(modelEl?.value):{ok:true,id:settingsModelSnapshot.trim()};
+  if(!selectedModel.ok){$("modelSelectionError").textContent=selectedModel.error;$("modelSelectionError").hidden=false;return;}
+  $("modelSelectionError").hidden=true;
+  if(styleStory&&modelChanged&&!enteredKey&&modelIndependentSignature()===settingsModelFormSnapshot){
+    const previous=styleStory.settings;
+    styleStory.settings={...(previous||{}),model:selectedModel.id,...(intimacyStyle!==normalizeIntimacyStyle(previous?.intimacyStyle)?{intimacyStyle}:{})};
+    try{await saveVaultAtomic(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;$("modelSelectionError").textContent=error.message;$("modelSelectionError").hidden=false;return;}
+    $("settingsPanel").hidden=true;
+    return;
+  }
   if(styleStory&&intimacyStyle!==normalizeIntimacyStyle(styleStory.settings?.intimacyStyle)&&!enteredKey&&settingsFormSignature()===settingsFormSnapshot){
     const previous=styleStory.settings;
     styleStory.settings={...(previous||{}),intimacyStyle};
