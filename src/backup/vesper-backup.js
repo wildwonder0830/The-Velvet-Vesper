@@ -1,4 +1,4 @@
-import { validateVault } from "../schema.js";
+import { validateVault, VESPER_APP_VERSION } from "../schema.js";
 
 const SECRET_KEYS = new Set([
   "apiKey", "api_key", "openRouterKey", "openrouterKey", "authorization", "token", "secret"
@@ -19,6 +19,7 @@ export function buildPortableBackup(vault, now = new Date().toISOString()) {
   if (!validation.ok) throw new Error(`Cannot export invalid vault: ${validation.errors.join(" ")}`);
 
   const clean = stripSecrets(structuredClone(vault));
+  clean.appVersion = VESPER_APP_VERSION;
   clean.exportedAt = now;
   clean.backupSchema = 1;
   clean.secretsExcluded = true;
