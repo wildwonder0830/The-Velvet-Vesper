@@ -13,7 +13,7 @@ import { serializePortableBackup } from "./backup/vesper-backup.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
-let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
+let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, pendingBlockedReview = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const LAST_STORY_KEY="vesper.ui.lastStoryId";
 const rememberTab=tab=>{try{localStorage.setItem(LAST_TAB_KEY,tab);}catch{}};
@@ -73,6 +73,30 @@ function ensurePreferenceLines(){
   return true;
 }
 function cncPreferenceLine(){return (vault.preferenceLines||[]).find(line=>(line.tags||[]).includes("cnc"))||null;}
+function sexualBoundaryIssues(result){return (result?.validation?.issues||[]).filter(issue=>issue.type==="sexual-red-line");}
+function canReviewBlockedReply(result){return Boolean(result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length);}
+function closeBlockedReplyReview(){pendingBlockedReview=null;const panel=$("blockedReplyPanel");if(panel)panel.hidden=true;}
+function offerBlockedReplyReview({result,onAccept,onReject}){
+  if(!canReviewBlockedReply(result))return false;
+  const issues=sexualBoundaryIssues(result);
+  const terms=[...new Set(issues.map(issue=>issue.term||issue.message||"sexual red line"))];
+  pendingBlockedReview={result,onAccept,onReject};
+  $("blockedReplyReason").textContent="Vesper flagged: "+terms.join(" · ");
+  $("blockedReplyPreview").textContent=String(result.blockedText||result.text||"").trim();
+  $("blockedReplyPanel").hidden=false;
+  return true;
+}
+async function acceptBlockedReply(){
+  const review=pendingBlockedReview;if(!review)return;
+  pendingBlockedReview=null;$("blockedReplyPanel").hidden=true;
+  try{await review.onAccept();}catch(error){showStatus(`Could not accept blocked reply: ${error.message}`,"error");}
+}
+async function rejectBlockedReply(){
+  const review=pendingBlockedReview;if(!review)return;
+  pendingBlockedReview=null;$("blockedReplyPanel").hidden=true;
+  try{await review.onReject();}catch(error){showStatus(`Could not regenerate blocked reply: ${error.message}`,"error");}
+}
+
 async function boot() {
   db = await openVesperDb(); vault = await loadVault(db);
   const changed=ensurePreferenceLines()||applyVenomousAssistantRole();
@@ -90,7 +114,7 @@ function bindUi() {
   on("oocButton","click",()=>insertCommand("/ooc ")); on("regenLatestButton","click",regenerateLatestReply); on("stopButton","click",stopGeneration); on("scrollBottomButton","click",()=>jumpMessagesToLatest(true)); document.querySelectorAll("#commandChips [data-command]").forEach(button=>button.addEventListener("click",()=>insertCommand(button.dataset.command||"")));
   $("storySetupClose").onclick=closeStorySetup; $("createStoryFromSetup").onclick=createStarterStory; on("setupTemplate","change",applyStoryTemplate);
   $("settingsButton")?.addEventListener("click",openSettings); $("settingsClose")?.addEventListener("click",()=>{$("settingsPanel").hidden=true;});
-  $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("replaceKeyButton","click",beginKeyReplacement); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory;
+  $("saveSettings").onclick=saveSettings; on("backupButton","click",downloadBackup); on("replaceKeyButton","click",beginKeyReplacement); on("testConnectionButton","click",testModelConnection); on("rpQualityTestButton","click",testRpQuality); on("retryButton","click",retryFailedTurn); $("storyPicker").onchange=changeStory; $("deleteStoryClose").onclick=closeDeleteStory; $("deleteStoryCancel").onclick=closeDeleteStory; $("deleteStoryConfirm").onclick=confirmDeleteStory; on("blockedReplyClose","click",closeBlockedReplyReview); on("blockedReplyReject","click",rejectBlockedReply); on("blockedReplyAccept","click",acceptBlockedReply);
 }
 
 function backupFilename(){const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")+"_"+[String(d.getHours()).padStart(2,"0"),String(d.getMinutes()).padStart(2,"0")].join("-");return `Vesper_Backup_${stamp}.json`;}
@@ -236,7 +260,7 @@ async function generateToolReply({story,chat,instruction,label}){
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
-    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable reply.");
+    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>generateToolReply({story,chat,instruction,label})})){showStatus("Reply held for your boundary review.","notice");return;}throw new Error("Vesper couldn\'t produce a usable reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);showStatus("","clear");
@@ -303,6 +327,7 @@ async function generateOpeningForStory(story,chatId){
     recordTurnUsage(result,{storyId:story.id,chatId,model});await saveVaultAtomic(db,vault);
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){
       const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");
+      if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryOpeningStoryId=null;await saveVaultAtomic(db,vault);renderStory(story.id,chatId);showStatus("Blocked opener accepted by you.","notice");},onReject:async()=>generateOpeningForStory(story,chatId)})){retryOpeningStoryId=story.id;showStatus("Opening held for your boundary review.","notice");return;}
       throw new Error(why?`Vesper rejected the opener: ${why}.`:"Vesper returned no usable opener.");
     }
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
@@ -351,7 +376,7 @@ async function generateReplyForMessage({message,story,chat}){
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
-    if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn't produce a valid reply.");}
+    if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryMessageId=null;await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>{retryMessageId=message.id;await generateReplyForMessage({message,story,chat});}})){retryMessageId=message.id;showStatus("Reply held for your boundary review.","notice");return;}throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn\'t produce a valid reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     retryMessageId=null;await saveVaultAtomic(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id);const composer=$("messageInput");composer.hidden=false;composer.focus({preventScroll:true});
