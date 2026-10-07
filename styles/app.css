@@ -109,3 +109,8 @@
 .in-story-text-body{font-size:15px;line-height:1.45;color:#fff1f4;white-space:pre-wrap}
 .message.user .in-story-text-bubble{margin-left:auto}
 .message.assistant .in-story-text-bubble{margin-left:0;margin-right:auto;border-radius:16px 16px 16px 5px;background:linear-gradient(145deg,#25131a,#130d10)}
+
+/* iPhone Safari: the composer is already the final grid row. Keeping it sticky made the retry row overlap the textarea. */
+.chat-view>.composer{position:relative!important;bottom:auto!important;z-index:8}
+.chat-view>.generation-actions{position:relative!important;z-index:9;flex:0 0 auto}
+.chat-view>.generation-actions:has(.retry-button[hidden]){display:none}
