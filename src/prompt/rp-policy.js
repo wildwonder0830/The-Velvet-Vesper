@@ -19,7 +19,8 @@ export const RP_POLICY = Object.freeze({
   ],
   formatting: [
     "Respect the story's configured POV, tense, formatting, pacing, and voice.",
-    "Keep actions and dialogue easy to distinguish and readable on a mobile screen."
+    "Keep actions and dialogue easy to distinguish and readable on a mobile screen.",
+    "TEXT MESSAGE FORMAT — GLOBAL: Whenever an in-story text, DM, chat-app, or phone message appears, put each message on its own paragraph in exactly this form: SENDER_NAME: message. Use a short uppercase sender label (letters, numbers, and underscores only). Do not wrap the message in quotation marks. This format is reserved for electronic messages so the Vesper UI can render them as text-message bubbles."
   ]
 });
 
