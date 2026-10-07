@@ -214,7 +214,7 @@ async function generateToolReply({story,chat,instruction,label}){
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable reply.");
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
-    await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);
+    await saveVaultAtomic(db,vault);renderStory(story.id,chat.id);showStatus("","clear");
   }catch(error){showStatus(error?.name==="AbortError"?"Generation stopped.":`Generation failed: ${error.message}`,"error");}
   finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
 }
