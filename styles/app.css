@@ -130,3 +130,4 @@
 /* Body-level completion notification stays above sheets and outside chat overflow. */
 .milestone-toast{position:fixed;z-index:1000;top:calc(64px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));width:auto;max-width:420px;margin:0 auto;padding:14px;border:1px solid #9b2942;border-radius:14px;background:#160c10;color:#ffe8ed;box-shadow:0 8px 24px #0009;max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px);overflow:auto;overflow-wrap:anywhere;pointer-events:auto}
 .milestone-toast[hidden]{display:none}.milestone-toast p{margin:8px 0}.milestone-toast button{min-height:44px;padding:8px 16px;border:1px solid #9b2942;border-radius:10px;background:#251016;color:#ffe8ed;touch-action:manipulation}
+#intimacyStyle{min-height:44px;font-size:16px}

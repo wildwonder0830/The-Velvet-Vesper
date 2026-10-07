@@ -14,10 +14,13 @@ import { seedDefaultGreenLines } from "./rules/preference-lines.js";
 import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/story-selection.js";
 import { recordUsage } from "./usage/usage-ledger.js";
 import { serializePortableBackup } from "./backup/vesper-backup.js";
+import { normalizeIntimacyStyle } from "./settings/intimacy-style.js";
 
 const $ = id => document.getElementById(id);
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 let importingBackup=false;
+let settingsFormSnapshot="";
+const settingsFormSignature=()=>JSON.stringify(["modelName","temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, pendingBlockedReview = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const LAST_STORY_KEY="vesper.ui.lastStoryId";
@@ -260,9 +263,11 @@ function openSettings(){
   setValue("temperatureSetting",settings.temperature??0.9);
   setValue("maxTokensSetting",settings.maxTokens??1200);
   setValue("intimacyPacing",settings.intimacyPacing||"balanced");
+  setValue("intimacyStyle",normalizeIntimacyStyle(settings.intimacyStyle));
   setChecked("requirePlotAfterSex",settings.requirePlotAfterSex);
   const cncLine=cncPreferenceLine();
   setChecked("cncToggle",Boolean(cncLine&&settings.enabledPreferenceLineIds?.includes(cncLine.id)));
+  settingsFormSnapshot=settingsFormSignature();
   setText("appVersionLabel",VESPER_APP_VERSION);
   setText("schemaVersionLabel",VESPER_SCHEMA_VERSION);
   setText("vaultStoryCount",(vault?.stories||[]).length);
@@ -274,6 +279,15 @@ function openSettings(){
 async function saveSettings(){
   const apiKeyEl=$("apiKey"),replaceRow=$("apiKeyReplaceRow"),modelEl=$("modelName");
   const enteredKey=apiKeyEl?.value?.trim()||"";
+  const styleStory=(vault?.stories||[]).find(s=>s.id===activeStoryId)||(vault?.stories||[])[0]||null;
+  const intimacyStyle=normalizeIntimacyStyle($("intimacyStyle")?.value);
+  if(styleStory&&intimacyStyle!==normalizeIntimacyStyle(styleStory.settings?.intimacyStyle)&&!enteredKey&&settingsFormSignature()===settingsFormSnapshot){
+    const previous=styleStory.settings;
+    styleStory.settings={...(previous||{}),intimacyStyle};
+    try{await saveVaultAtomic(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;throw error;}
+    $("settingsPanel").hidden=true;
+    return;
+  }
   if(replaceRow&&!replaceRow.hidden&&enteredKey) replaceOpenRouterKey(enteredKey);
   if(apiKeyEl)apiKeyEl.value="";if(replaceRow)replaceRow.hidden=true;renderKeyStatus();
   const modelValue=modelEl?.value?.trim()||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
@@ -282,7 +296,7 @@ async function saveSettings(){
   if(story){
     const cncLine=cncPreferenceLine(),enabledIds=new Set(story.settings?.enabledPreferenceLineIds||[]);
     if(cncLine){if($("cncToggle")?.checked)enabledIds.add(cncLine.id);else enabledIds.delete(cncLine.id);}
-    story.settings={...(story.settings||{}),model:modelValue,temperature:Number($("temperatureSetting")?.value)||0.9,maxTokens:Number($("maxTokensSetting")?.value)||1200,intimacyPacing:$("intimacyPacing")?.value||"balanced",requirePlotAfterSex:Boolean($("requirePlotAfterSex")?.checked),enabledPreferenceLineIds:[...enabledIds]};
+    story.settings={...(story.settings||{}),model:modelValue,temperature:Number($("temperatureSetting")?.value)||0.9,maxTokens:Number($("maxTokensSetting")?.value)||1200,intimacyPacing:$("intimacyPacing")?.value||"balanced",...(intimacyStyle!==normalizeIntimacyStyle(story.settings?.intimacyStyle)?{intimacyStyle}:{}),requirePlotAfterSex:Boolean($("requirePlotAfterSex")?.checked),enabledPreferenceLineIds:[...enabledIds]};
     await saveVaultAtomic(db,vault);
   }
   $("settingsPanel").hidden=true;
