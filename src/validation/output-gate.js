@@ -12,6 +12,9 @@ const PASSIVE_HANDOFF_PATTERNS = [
   /\bwait(?:s|ing)? for (?:her|Amanda) to (?:respond|react|decide|speak|act)\b/i
 ];
 
+const PRIVATE_AUTHORSHIP_CONTEXT = /\b(?:notes?|journal|diary|entries?|fantas(?:y|ies)|wish\s*list|private\s*list|drafts?|saved\s*(?:messages?|entries?)|app\s*(?:notes?|entries?))\b/i;
+const INVENTED_PERSONA_PRIVATE_VOICE = /(?:^|\n)\s*(?:[*_>\-\s]*\d+[.)]?\s*)?(?:[*_]?\s*)?(?:I\s+(?:want|need|wish|imagine|love|like)|Want\s+(?:him|her|them|to|the)|Need\s+(?:him|her|them|to|the)|I(?:'|’)m\s+(?:his|hers|theirs)|Make\s+me\b)/im;
+
 export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "" }) {
   const issues = [];
   if (!String(text || "").trim()) {
@@ -35,6 +38,13 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
       const userEstablished = outputMatch && priorUserText.replace(/\s+/g, " ").toLowerCase().includes(outputMatch);
       if (outputMatch && !userEstablished) issues.push({ type: "user-agency", severity: "repair", message: "Model supplied a voluntary or consequential choice for Amanda." });
     }
+  }
+  if (!personaDraft && PRIVATE_AUTHORSHIP_CONTEXT.test(String(text)) && INVENTED_PERSONA_PRIVATE_VOICE.test(String(text))) {
+    issues.push({
+      type: "persona-private-authorship",
+      severity: "block",
+      message: "Model invented Amanda-authored private notes, fantasies, desires, or messages. Only user-supplied Amanda-authored content may be quoted or specified; otherwise leave the contents undescribed."
+    });
   }
   if (!opening && !personaDraft) {
     for (const pattern of PASSIVE_HANDOFF_PATTERNS) {
@@ -61,6 +71,6 @@ export function buildRepairInstruction(result, { opening = false, personaDraft =
   const reasons = result.issues.map(issue => `- ${issue.message || issue.term || issue.type}`).join("\n");
   const agencyRule=personaDraft
     ? "This is a MY TURN draft: write only Amanda's proposed turn and do not write model-controlled characters' dialogue, actions, thoughts, or reactions."
-    : "Do not supply the user-controlled persona's voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential choices. Involuntary, unavoidable, mechanically necessary, or explicitly pre-established events may be narrated.";
+    : "Do not supply the user-controlled persona's voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential choices. Never invent Amanda-authored private notes, fantasies, desires, diary entries, messages, lists, recordings, or offscreen confessions; only use contents explicitly supplied by the user. Involuntary, unavoidable, mechanically necessary, or explicitly pre-established events may be narrated.";
   return `Rewrite the response without changing the intended story beat. Correct these violations:\n${reasons}\n${agencyRule} Preserve established canon and relationship state.${opening ? " For an opening turn, do not use passive handoff language; simply end on the configured completed opening beat without narrating Amanda." : ""}`;
 }
