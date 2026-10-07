@@ -120,3 +120,9 @@
 .blocked-reply-preview{margin:14px 0;padding:14px;border:1px solid #6f2940;border-radius:14px;background:#0e090b;color:#fff0f3;white-space:pre-wrap;line-height:1.6;font-size:14px;max-height:48dvh;overflow:auto;box-shadow:inset 0 1px 0 #ffffff08}
 .blocked-reply-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
 @media(max-width:560px){.blocked-reply-actions{grid-template-columns:1fr}.blocked-reply-card{max-height:92dvh}}
+
+.version-section{background:linear-gradient(145deg,#160d12,#0c090a);border:1px solid #4a202b;border-radius:16px;padding:14px!important;margin-bottom:10px}
+.version-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.version-grid>div{padding:10px 12px;border:1px solid #3b1d26;border-radius:12px;background:#0d090b}
+.version-grid small{display:block;color:var(--muted);font-size:9px;letter-spacing:.08em;text-transform:uppercase}
+.version-grid strong{display:block;margin-top:4px;color:#fff0f3;font-size:14px;overflow-wrap:anywhere}
