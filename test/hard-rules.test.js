@@ -17,3 +17,5 @@ test("overstimulation alias is blocked",()=>{const term="\u0065"+"dging";const r
 test("global RP policy hardwires text-message bubble format",()=>{const policy=compileRpPolicy().join("\n");assert.match(policy,/TEXT MESSAGE FORMAT — GLOBAL/);assert.match(policy,/SENDER_NAME: message/);});
 
 test("CNC preference is off until the story explicitly opts in",()=>{const lines=seedDefaultGreenLines("2026-01-01T00:00:00.000Z"),cnc=lines.find(line=>line.tags.includes("cnc"));assert.ok(cnc);assert.equal(compileGreenLines(lines,{}).some(line=>line.id===cnc.id),false);assert.equal(compileGreenLines(lines,{enabledPreferenceLineIds:[cnc.id]}).some(line=>line.id===cnc.id),true);});
+
+// Provider-role compatibility is covered indirectly by turn-engine source invariants; imported non-assistant roles must never be forwarded verbatim.
