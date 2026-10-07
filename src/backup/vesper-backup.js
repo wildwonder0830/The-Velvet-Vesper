@@ -1,4 +1,5 @@
-import { validateVault, VESPER_APP_VERSION } from "../schema.js";
+import { validateVault } from "../schema.js";
+const VESPER_APP_VERSION = "1.1.1";
 
 const SECRET_KEYS = new Set([
   "apiKey", "api_key", "openRouterKey", "openrouterKey", "authorization", "token", "secret"
