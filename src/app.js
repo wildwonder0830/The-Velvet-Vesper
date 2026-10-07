@@ -155,7 +155,7 @@ async function handleImportFile(e){
     $("importPreview").replaceChildren(heading,countText,notice,button);
   }catch(error){$("importPreview").hidden=false;$("importPreview").textContent=`Import error: ${error.message}`;}
 }
-async function confirmImport(){if(!preparedImport)return;const button=$("confirmImport");if(button){button.disabled=true;button.textContent="Importing…";}try{importingBackup=true;await commitPreparedImport(db,preparedImport);vault=await loadVault(db);preparedImport=null;const preview=$("importPreview");preview.hidden=true;preview.replaceChildren();const input=$("importFile");if(input)input.value="";render();showStatus("Backup imported successfully.","notice");}catch(error){if(button){button.disabled=false;button.textContent="Confirm Import";}showStatus(`Import failed: ${error.message}`,"error");}finally{importingBackup=false;}}
+async function confirmImport(){if(!preparedImport)return;const button=$("confirmImport");if(button){button.disabled=true;button.textContent="Importing…";}try{importingBackup=true;await commitPreparedImport(db,preparedImport,{expectedRevision:vault.storageRevision});vault=await loadVault(db);preparedImport=null;const preview=$("importPreview");preview.hidden=true;preview.replaceChildren();const input=$("importFile");if(input)input.value="";render();showStatus("Backup imported successfully.","notice");}catch(error){if(button){button.disabled=false;button.textContent="Confirm Import";}showStatus(`Import failed: ${error.message}`,"error");}finally{importingBackup=false;}}
 function applyStoryTemplate(){
   const template=$("setupTemplate")?.value;
   if(template==="blackthorn"){

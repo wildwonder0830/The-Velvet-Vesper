@@ -71,7 +71,7 @@ export function mergeVaults(currentVault, incomingVault, now=new Date().toISOStr
   return next;
 }
 
-export async function commitPreparedImport(db, prepared) {
+export async function commitPreparedImport(db, prepared, {expectedRevision} = {}) {
   if (!prepared?.vault) throw new Error("No prepared import to commit.");
   requireValidBackup(validateVesperBackup(prepared.vault),"Vesper");
   if(!["merge","replace"].includes(prepared.importMode))throw new Error("Invalid backup import mode. Nothing was changed.");
@@ -79,7 +79,7 @@ export async function commitPreparedImport(db, prepared) {
     const current=await loadVault(db);
     const merged=mergeVaults(current,prepared.vault);
     requireValidBackup(validateVesperBackup(merged),"merged Vesper");
-    return saveVaultAtomic(db,merged);
+    return saveVaultAtomic(db,merged,{expectedRevision:expectedRevision??current.storageRevision});
   }
-  return replaceVaultAtomic(db, prepared.vault);
+  return replaceVaultAtomic(db, prepared.vault,{expectedRevision});
 }
