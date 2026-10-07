@@ -8,7 +8,7 @@ import { compileMateBondPrompt } from "../relationships/mate-bond.js";
 import { filterMemoryForModel } from "../memory/memory-manager.js";
 
 export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], storySettings = {}, oocInstruction = "", maxRecentMessages = 40 }) {
-  const context=buildStoryContext(vault,storyId);
+  const context=buildStoryContext(vault,storyId,chatId);
   const chat=(vault.chats||[]).find(c=>c.id===chatId&&c.storyId===storyId);
   if(!chat) throw new Error("Chat not found in active story.");
   const recentMessages=selectRecentMessages(filterMemoryForModel((vault.messages||[]).filter(m=>m.storyId===storyId&&m.chatId===chatId),vault.memoryEntries,storyId),{maxMessages:maxRecentMessages});

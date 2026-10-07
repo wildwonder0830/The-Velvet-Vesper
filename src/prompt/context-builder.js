@@ -16,13 +16,21 @@ function scopedLore(vault, story) {
   });
 }
 
-function storyMemory(vault, storyId) {
-  return activeMemory(vault.memoryEntries,storyId);
+function storyMemory(vault, storyId, chatId) {
+  return activeMemory(vault.memoryEntries,storyId).filter(entry => {
+    // These records describe a conversation's transient state, not shared canon.
+    const chatScoped = ["scene", "summary", "legacy-story-stats"].includes(entry.kind) ||
+      ["chat", "scene"].includes(entry.scope);
+    return !chatScoped || Boolean(chatId && entry.chatId === chatId);
+  });
 }
 
-export function buildStoryContext(vault, storyId) {
+export function buildStoryContext(vault, storyId, chatId = null) {
   const story = byId(vault.stories, storyId);
   if (!story) throw new Error("Story not found.");
+  if (chatId != null && !(vault.chats || []).some(c => c.id === chatId && c.storyId === storyId)) {
+    throw new Error("Chat not found in active story.");
+  }
 
   const persona = byId(vault.personas, story.personaId);
   const characterIds = new Set(story.characterIds || []);
@@ -35,11 +43,13 @@ export function buildStoryContext(vault, storyId) {
     persona,
     characters,
     lore: scopedLore(vault, story),
-    memory: storyMemory(vault, story.id),
+    memory: storyMemory(vault, story.id, chatId),
     relationships: (vault.relationships || []).filter(r => r.storyId === story.id),
     milestones: (vault.milestones || []).filter(m => m.storyId === story.id && m.status !== "rejected"),
-    sceneState: [...(vault.sceneStates || [])].filter(s => s.storyId === story.id && s.status !== "superseded").sort((a,b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null,
-    knowledge: (vault.knowledgeEntries || []).filter(k => k.storyId === story.id)
+    sceneState: chatId ? [...(vault.sceneStates || [])].filter(s => s.storyId === story.id && s.chatId === chatId && s.status !== "superseded").sort((a,b) => String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")))[0] || null : null,
+    knowledge: (vault.knowledgeEntries || []).filter(k => k.storyId === story.id &&
+      (k.chatId || ["legacy-ledger", "scene"].includes(k.kind) || ["chat", "scene"].includes(k.scope)
+        ? Boolean(chatId && k.chatId === chatId) : true))
   };
 
   return sanitizeContext(filterMemoryForModel(context,vault.memoryEntries,storyId));
