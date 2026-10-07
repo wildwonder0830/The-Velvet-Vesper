@@ -1,6 +1,6 @@
 import { openVesperDb, loadVault, saveVaultAtomic } from "./storage/vault-store.js";
 import { previewImport, prepareImport, commitPreparedImport } from "./migration/import-service.js";
-import { makeId } from "./schema.js";
+import { makeId, VESPER_APP_VERSION, VESPER_SCHEMA_VERSION } from "./schema.js";
 import { createMemory } from "./memory/memory-manager.js";
 import { recordKnowledge } from "./knowledge/ledger.js";
 import { createSceneState } from "./scene/scene-state.js";
@@ -226,22 +226,40 @@ async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=
 async function testModelConnection(){const out=$("connectionTestStatus");out.textContent="Testing…";try{await probeOpenRouter("Reply with exactly: VESPER CONNECTED");out.textContent="✓ Connection successful.";}catch(error){out.textContent=`Connection failed: ${error.message}`;}}
 async function testRpQuality(){const out=$("connectionTestStatus");out.textContent="Running RP quality test…";try{const data=await probeOpenRouter("In one short sentence, write atmospheric gothic roleplay prose about a candlelit hall. No sexual content.");const sample=data?.choices?.[0]?.message?.content?.trim();out.textContent=sample?`RP test: ${sample}`:"RP test connected, but returned no text.";}catch(error){out.textContent=`RP test failed: ${error.message}`;}}
 function openSettings(){
-  const story=vault.stories.find(s=>s.id===activeStoryId)||vault.stories[0];
-  $("apiKey").value="";$("apiKeyReplaceRow").hidden=true;renderKeyStatus();
-  $("modelName").value=story?.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
-  const settings=story?.settings||{};$("temperatureSetting").value=settings.temperature??0.9;$("maxTokensSetting").value=settings.maxTokens??1200;$("intimacyPacing").value=settings.intimacyPacing||"balanced";$("requirePlotAfterSex").checked=Boolean(settings.requirePlotAfterSex);const cncLine=cncPreferenceLine();$("cncToggle").checked=Boolean(cncLine&&settings.enabledPreferenceLineIds?.includes(cncLine.id));renderHardLimits();$("connectionTestStatus").textContent="";
-  $("settingsPanel").hidden=false;
+  const story=(vault?.stories||[]).find(s=>s.id===activeStoryId)||(vault?.stories||[])[0]||null;
+  const settings=story?.settings||{};
+  const setValue=(id,value)=>{const el=$(id);if(el)el.value=value;};
+  const setChecked=(id,value)=>{const el=$(id);if(el)el.checked=Boolean(value);};
+  const setText=(id,value)=>{const el=$(id);if(el)el.textContent=String(value);};
+  const setHidden=(id,value)=>{const el=$(id);if(el)el.hidden=Boolean(value);};
+  setValue("apiKey","");setHidden("apiKeyReplaceRow",true);renderKeyStatus();
+  setValue("modelName",story?.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL);
+  setValue("temperatureSetting",settings.temperature??0.9);
+  setValue("maxTokensSetting",settings.maxTokens??1200);
+  setValue("intimacyPacing",settings.intimacyPacing||"balanced");
+  setChecked("requirePlotAfterSex",settings.requirePlotAfterSex);
+  const cncLine=cncPreferenceLine();
+  setChecked("cncToggle",Boolean(cncLine&&settings.enabledPreferenceLineIds?.includes(cncLine.id)));
+  setText("appVersionLabel",VESPER_APP_VERSION);
+  setText("schemaVersionLabel",VESPER_SCHEMA_VERSION);
+  setText("vaultStoryCount",(vault?.stories||[]).length);
+  setText("vaultMessageCount",(vault?.messages||[]).length);
+  renderHardLimits();
+  setText("connectionTestStatus","");
+  const panel=$("settingsPanel");if(panel)panel.hidden=false;
 }
 async function saveSettings(){
-  const enteredKey=$("apiKey").value.trim();
-  if(!$("apiKeyReplaceRow").hidden&&enteredKey) replaceOpenRouterKey(enteredKey);
-  $("apiKey").value="";$("apiKeyReplaceRow").hidden=true;renderKeyStatus();
-  localStorage.setItem("vesper.model",$("modelName").value.trim());
-  const story=vault.stories.find(s=>s.id===activeStoryId);
+  const apiKeyEl=$("apiKey"),replaceRow=$("apiKeyReplaceRow"),modelEl=$("modelName");
+  const enteredKey=apiKeyEl?.value?.trim()||"";
+  if(replaceRow&&!replaceRow.hidden&&enteredKey) replaceOpenRouterKey(enteredKey);
+  if(apiKeyEl)apiKeyEl.value="";if(replaceRow)replaceRow.hidden=true;renderKeyStatus();
+  const modelValue=modelEl?.value?.trim()||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
+  localStorage.setItem("vesper.model",modelValue);
+  const story=(vault?.stories||[]).find(s=>s.id===activeStoryId);
   if(story){
     const cncLine=cncPreferenceLine(),enabledIds=new Set(story.settings?.enabledPreferenceLineIds||[]);
-    if(cncLine){if($("cncToggle").checked)enabledIds.add(cncLine.id);else enabledIds.delete(cncLine.id);}
-    story.settings={...(story.settings||{}),model:$("modelName").value.trim(),temperature:Number($("temperatureSetting").value)||0.9,maxTokens:Number($("maxTokensSetting").value)||1200,intimacyPacing:$("intimacyPacing").value,requirePlotAfterSex:$("requirePlotAfterSex").checked,enabledPreferenceLineIds:[...enabledIds]};
+    if(cncLine){if($("cncToggle")?.checked)enabledIds.add(cncLine.id);else enabledIds.delete(cncLine.id);}
+    story.settings={...(story.settings||{}),model:modelValue,temperature:Number($("temperatureSetting")?.value)||0.9,maxTokens:Number($("maxTokensSetting")?.value)||1200,intimacyPacing:$("intimacyPacing")?.value||"balanced",requirePlotAfterSex:Boolean($("requirePlotAfterSex")?.checked),enabledPreferenceLineIds:[...enabledIds]};
     await saveVaultAtomic(db,vault);
   }
   $("settingsPanel").hidden=true;
