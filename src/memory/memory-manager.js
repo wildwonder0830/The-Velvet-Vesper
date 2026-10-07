@@ -21,14 +21,26 @@ export function isMemoryVisible(entry) {
     !entry.forgotten && !entry.deleted && !entry.excluded && !entry.forgottenAt && !entry.deletedAt && !entry.excludedAt);
 }
 
-const forgottenStatuses=new Set(["forgotten","deleted","excluded"]);
+const forgottenStatuses=new Set(["forgotten","deleted","excluded","retired"]);
 const list=value=>Array.isArray(value)?value:[];
+function memorySources(entry) {
+  const ids=[entry?.sourceMemoryId,...list(entry?.sourceMemoryIds),entry?.invalidatedByMemoryId];
+  function visit(value){
+    if(!value||typeof value!=="object")return;
+    ids.push(value.sourceMemoryId,...list(value.sourceMemoryIds),value.invalidatedByMemoryId);
+    Object.values(value).forEach(visit);
+  }
+  visit(entry?.data);
+  return ids.filter(id=>typeof id==="string");
+}
 function isForgotten(entry) {
   return Boolean(entry && (forgottenStatuses.has(entry.status) || entry.forgotten || entry.deleted || entry.excluded || entry.forgottenAt || entry.deletedAt || entry.excludedAt));
 }
 
 function memoryVisibilityPolicy(entries,storyId) {
-  const rows=(entries||[]).filter(m=>m.storyId===storyId);
+  // Provenance can cross story boundaries even though retrieval cannot. Compute
+  // its closure over the full vault, without changing historical record status.
+  const rows=entries||[];
   // Imported characters may be shared by multiple stories. Their retained
   // copies must not reveal a forgotten fact when the user switches stories.
   const roots=(entries||[]).filter(m=>isForgotten(m)&&!m.invalidatedByMemoryId);
@@ -45,14 +57,14 @@ function memoryVisibilityPolicy(entries,storyId) {
   while(changed){
     changed=false;
     for(const row of rows){
-      const dependent=list(row.sourceMemoryIds).some(id=>excludedIds.has(id)) ||
+      const dependent=memorySources(row).some(id=>excludedIds.has(id)) ||
         list(row.sourceMessageIds).some(id=>sourceIds.has(id)) ||
-        texts.some(text=>JSON.stringify({text:row.text,data:row.data}).includes(text)) ||
-        (roots.some(m=>m.storyId===storyId)&&row.kind==="summary"&&!list(row.sourceMessageIds).length);
+        (row.storyId===storyId&&(texts.some(text=>JSON.stringify({text:row.text,data:row.data}).includes(text)) ||
+        (roots.some(m=>m.storyId===storyId)&&row.kind==="summary"&&!list(row.sourceMessageIds).length)));
       if(dependent&&!excludedIds.has(row.id)){excludedIds.add(row.id);changed=true;}
     }
   }
-  return {roots,sourceIds,excludedIds,texts};
+  return {roots,sourceIds,excludedIds,texts,records:new Map(rows.map(row=>[row.id,row]))};
 }
 
 // Build a model-only copy; retained historical records are never modified.
@@ -67,9 +79,12 @@ export function filterMemoryForModel(value,entries,storyId) {
     }
     if(Array.isArray(item))return item.map(child=>project(child,preserveRecords)).filter(child=>child!==undefined);
     if(!item||typeof item!=="object")return item;
-    if(!preserveRecords&&(policy.excludedIds.has(item.id)||policy.sourceIds.has(item.id)||isForgotten(item)||
-      list(item.sourceMemoryIds).some(id=>policy.excludedIds.has(id))||
-      list(item.sourceMessageIds).some(id=>policy.sourceIds.has(id))||policy.sourceIds.has(item.sourceMessageId)))return undefined;
+    const memory=policy.records.get(item.id);
+    const excludedMemory=policy.excludedIds.has(item.id)&&memory&&item.storyId===memory.storyId&&item.kind===memory.kind;
+    // Scene/milestone identity is preserved for message redaction, but explicit
+    // memory provenance must never bypass forgotten-source exclusion.
+    if(memorySources(item).some(id=>policy.excludedIds.has(id))||(!preserveRecords&&(excludedMemory||policy.sourceIds.has(item.id)||isForgotten(item)||
+      list(item.sourceMessageIds).some(id=>policy.sourceIds.has(id))||policy.sourceIds.has(item.sourceMessageId))))return undefined;
     return Object.fromEntries(Object.entries(item).map(([key,child])=>[key,project(child,preserveRecords||["milestones","confirmedMilestones","sceneState"].includes(key))]).filter(([,child])=>child!==undefined));
   }
   return project(value);
