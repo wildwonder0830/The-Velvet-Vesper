@@ -67,9 +67,16 @@ function applyVenomousAssistantRole(){
   }
   return changed;
 }
+function ensurePreferenceLines(){
+  if((vault.preferenceLines||[]).length)return false;
+  vault.preferenceLines=seedDefaultGreenLines();
+  return true;
+}
+function cncPreferenceLine(){return (vault.preferenceLines||[]).find(line=>(line.tags||[]).includes("cnc"))||null;}
 async function boot() {
   db = await openVesperDb(); vault = await loadVault(db);
-  if(applyVenomousAssistantRole())await saveVaultAtomic(db,vault);
+  const changed=ensurePreferenceLines()||applyVenomousAssistantRole();
+  if(changed)await saveVaultAtomic(db,vault);
   bindUi(); render();
 }
 function bindUi() {
@@ -193,7 +200,7 @@ function openSettings(){
   const story=vault.stories.find(s=>s.id===activeStoryId)||vault.stories[0];
   $("apiKey").value="";$("apiKeyReplaceRow").hidden=true;renderKeyStatus();
   $("modelName").value=story?.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
-  const settings=story?.settings||{};$("temperatureSetting").value=settings.temperature??0.9;$("maxTokensSetting").value=settings.maxTokens??1200;$("intimacyPacing").value=settings.intimacyPacing||"balanced";$("requirePlotAfterSex").checked=Boolean(settings.requirePlotAfterSex);renderHardLimits();$("connectionTestStatus").textContent="";
+  const settings=story?.settings||{};$("temperatureSetting").value=settings.temperature??0.9;$("maxTokensSetting").value=settings.maxTokens??1200;$("intimacyPacing").value=settings.intimacyPacing||"balanced";$("requirePlotAfterSex").checked=Boolean(settings.requirePlotAfterSex);const cncLine=cncPreferenceLine();$("cncToggle").checked=Boolean(cncLine&&settings.enabledPreferenceLineIds?.includes(cncLine.id));renderHardLimits();$("connectionTestStatus").textContent="";
   $("settingsPanel").hidden=false;
 }
 async function saveSettings(){
@@ -202,7 +209,12 @@ async function saveSettings(){
   $("apiKey").value="";$("apiKeyReplaceRow").hidden=true;renderKeyStatus();
   localStorage.setItem("vesper.model",$("modelName").value.trim());
   const story=vault.stories.find(s=>s.id===activeStoryId);
-  if(story){story.settings={...(story.settings||{}),model:$("modelName").value.trim(),temperature:Number($("temperatureSetting").value)||0.9,maxTokens:Number($("maxTokensSetting").value)||1200,intimacyPacing:$("intimacyPacing").value,requirePlotAfterSex:$("requirePlotAfterSex").checked};await saveVaultAtomic(db,vault);}
+  if(story){
+    const cncLine=cncPreferenceLine(),enabledIds=new Set(story.settings?.enabledPreferenceLineIds||[]);
+    if(cncLine){if($("cncToggle").checked)enabledIds.add(cncLine.id);else enabledIds.delete(cncLine.id);}
+    story.settings={...(story.settings||{}),model:$("modelName").value.trim(),temperature:Number($("temperatureSetting").value)||0.9,maxTokens:Number($("maxTokensSetting").value)||1200,intimacyPacing:$("intimacyPacing").value,requirePlotAfterSex:$("requirePlotAfterSex").checked,enabledPreferenceLineIds:[...enabledIds]};
+    await saveVaultAtomic(db,vault);
+  }
   $("settingsPanel").hidden=true;
 }
 async function runStoryTool(kind){
