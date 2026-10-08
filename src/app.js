@@ -213,8 +213,8 @@ async function handleImportFile(e){
   try{
     const baseline=await loadVault(db);importRevision=baseline.storageRevision;
     const prepared=await readBackupFile(file,text=>{if(token===backupOperation)transferMessage(text);});if(token!==backupOperation)return;
-    preparedImport=prepared;rollbackFile=createBackupFile(baseline,`Vesper_Before_Restore_${Date.now()}.json`);
-    const counts=prepared.vault,content=transferMessage(`Validated: ${counts.stories.length} stories, ${counts.chats.length} chats, ${counts.messages.length} messages. ${prepared.importMode==="replace"?`REPLACE: all current vault records (${baseline.stories.length} stories, ${baseline.messages.length} messages) will be replaced by this backup; records absent from it will be removed.`:"MERGE: incoming Noctis records will be added; existing records are retained. Conflicting or repeated imports are rejected."} Your device API key is unchanged. Nothing has been imported.`);
+    preparedImport=prepared;if(prepared.preview?.detected?.type==="story-package")$("backupTransferTitle").textContent="Add Story Package";rollbackFile=createBackupFile(baseline,`Vesper_Before_Restore_${Date.now()}.json`);
+    const counts=prepared.vault,content=transferMessage(`Validated: ${counts.stories.length} stories, ${counts.chats.length} chats, ${counts.messages.length} messages. ${prepared.importMode==="replace"?`REPLACE: all current vault records (${baseline.stories.length} stories, ${baseline.messages.length} messages) will be replaced by this backup; records absent from it will be removed.`:"MERGE: incoming records will be added; existing records are retained. Conflicting or repeated imports are rejected."} Your device API key is unchanged. Nothing has been imported.`);
     const details=document.createElement("p");
     details.textContent=["personas","characters","memoryEntries","milestones","relationships","sceneStates","knowledgeEntries","loreEntries","preferenceLines","usageEntries"].map(key=>`${key}: ${counts[key]?.length||0}`).join(" · ");
     const phoneThreads=counts.stories.flatMap(story=>story.phone?.threads||[]);
@@ -229,7 +229,7 @@ async function handleImportFile(e){
 async function confirmImport(){
   if(!preparedImport||!$("restoreBackupSaved")?.checked)return;const prepared=preparedImport;const revision=importRevision;let committed=false;
   importingBackup=true;$("backupTransferClose").disabled=true;transferMessage("Restoring backup atomically… Please keep this app open.");
-  try{await new Promise(resolve=>setTimeout(resolve,0));await commitPreparedImport(db,prepared,{expectedRevision:revision});committed=true;preparedImport=null;vault=await loadVault(db);$("importFile").value="";render();transferMessage("Backup restored successfully. Saved stories and messages are ready. Keep your pre-restore backup for recovery.");}
+  try{await new Promise(resolve=>setTimeout(resolve,0));await commitPreparedImport(db,prepared,{expectedRevision:revision});committed=true;preparedImport=null;vault=await loadVault(db);$("importFile").value="";render();transferMessage(prepared.preview?.detected?.type==="story-package"?"Story package added successfully. Existing stories and messages were retained. Keep your rollback backup for recovery.":"Backup restored successfully. Saved stories and messages are ready. Keep your pre-restore backup for recovery.");}
   catch(error){preparedImport=null;transferMessage(committed?`Backup was restored, but refreshing the screen failed: ${error?.message||"The operation was interrupted."} Reload the app to view the saved data.`:`Import failed: ${error?.message||"The operation was interrupted."} The restore transaction did not change your saved data. Select the file again to refresh the preview.`);}
   finally{importingBackup=false;$("backupTransferClose").disabled=false;}
 }

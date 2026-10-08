@@ -1,11 +1,12 @@
 import { inspectNoctisV07, migrateNoctisV07 } from "./noctis-v07.js";
-import { normalizeVault } from "../schema.js";
+import { emptyVault, normalizeVault } from "../schema.js";
 import { loadVault, saveVaultAtomic, replaceVaultAtomic } from "../storage/vault-store.js";
 import { validateVesperBackup, validateNoctisBackup, requireValidBackup } from "../backup/backup-validation.js";
 
 const ARRAY_KEYS=["personas","characters","stories","chats","messages","loreEntries","memoryEntries","milestones","relationships","statDefinitions","statEvents","sceneStates","knowledgeEntries","preferenceLines","usageEntries","migrationLog"];
 
 export function detectImportSource(source) {
+  if(source?.packageType === "velvet-vesper-native-story-package") return {type:"story-package",version:source.packageVersion};
   if (source?.version === "0.7") return { type: "noctis-v07", version: "0.7" };
   if (source?.format === "the-velvet-vesper-vault") {
     return { type: "vesper", version: source.schemaVersion };
@@ -15,6 +16,10 @@ export function detectImportSource(source) {
 
 export function previewImport(source) {
   const detected = detectImportSource(source);
+  if(detected.type === "story-package") {
+    try { return prepareImport(source).preview; }
+    catch(error) { return {detected,valid:false,errors:[error.message]}; }
+  }
   if (detected.type === "noctis-v07") {
     const validation=validateNoctisBackup(source);
     if(!validation.ok)return {detected,valid:false,errors:validation.errors};
@@ -36,6 +41,19 @@ export function previewImport(source) {
 
 export function prepareImport(source) {
   const detected = detectImportSource(source);
+  if(detected.type === "story-package") {
+    if(source.packageVersion!=="1.0" || source.vesperSchemaVersion!==1 || source.importMode!=="additive-only")
+      throw new Error("Unsupported story-package version or mode. Nothing was changed.");
+    const incoming=emptyVault();
+    for(const key of ARRAY_KEYS) {
+      if(!Array.isArray(source[key]))throw new Error(`Story package is missing its ${key} collection. Nothing was changed.`);
+      incoming[key]=structuredClone(source[key]);
+    }
+    if(!incoming.stories.length)throw new Error("The story package contains no stories. Nothing was changed.");
+    requireValidBackup(validateVesperBackup(incoming),"story package");
+    return {vault:incoming,preview:{detected,valid:true,counts:Object.fromEntries(ARRAY_KEYS.map(key=>[key,incoming[key].length]))},warnings:[],importMode:"merge"};
+  }
+
   if (detected.type === "noctis-v07") {
     requireValidBackup(validateNoctisBackup(source),"Noctis");
     const prepared=migrateNoctisV07(source);
