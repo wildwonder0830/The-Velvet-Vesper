@@ -1,6 +1,7 @@
 import { assemblePrompt } from '../prompt/prompt-assembler.js';
 import { buildPhoneContext, filterPhoneProvenance } from './phone-context.js';
 import { validateStoryPhone } from './phone-state.js';
+import {orderedPhoneMessages} from './phone-state.js';
 import { sendOpenRouterChat } from '../provider/openrouter.js';
 import { validateModelOutput } from '../validation/output-gate.js';
 
@@ -54,7 +55,7 @@ export async function runPhoneTurn({vault,storyId,threadId,action,signal,send=se
   if (!Array.isArray(rows)||!rows.length||rows.length>20) throw new Error('Vesper returned no valid phone messages.');
   const messages=rows.map(row=>{
     if (!row||!thread.participantIds.includes(row.speakerId)||typeof row.text!=='string'||!row.text.trim()||row.text.length>80000)throw new Error('Vesper returned an invalid phone speaker or message.');
-    const validation=validateModelOutput({text:row.text,continuity:{mateBond:Boolean(relationship?.stage==='mated')},priorUserText:[...thread.messages].reverse().find(m=>m.senderType==='persona')?.text||''});
+    const validation=validateModelOutput({text:row.text,continuity:{mateBond:Boolean(relationship?.stage==='mated')},priorUserText:orderedPhoneMessages(thread).reverse().find(m=>m.senderType==='persona')?.text||''});
     if(!validation.ok||validation.needsRepair)throw new Error('Vesper’s phone reply failed story boundaries or continuity validation. Use Continue to try again.');
     return {senderType:'character',senderId:row.speakerId,text:row.text.trim(),storyId,chatId:thread.chatId,audienceIds:[...new Set([story.personaId,...thread.participantIds])],...sources};
   });

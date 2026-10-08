@@ -82,7 +82,49 @@ export function markPhoneThreadRead(vault, storyId, threadId) {
     t.readThroughOrdinal = Math.max(t.readThroughOrdinal,0,...t.messages.map(m => m.ordinal));});
 }
 export function phoneUnreadCount(story) {
-  return (story?.phone?.threads || []).reduce((n,t) => n + t.messages.filter(m => m.senderType === 'character' && m.ordinal > t.readThroughOrdinal).length,0);
+  return (story?.phone?.threads || []).reduce((n,t) => n + t.messages.filter(m => isPhoneMessageUnread(m,t)).length,0);
+}
+export const isPhoneMessageUnread=(message,thread)=>!message.recovery&&message.senderType==='character'&&message.ordinal>thread.readThroughOrdinal;
+// Transcript history is a separate ordered section: its relation to live phone
+// messages is unknown unless the source establishes a real send timestamp.
+export function orderedPhoneMessages(thread) {
+ const recovered=thread.messages.filter(m=>m.recovery).sort((a,b)=>a.recovery.transcriptOrder-b.recovery.transcriptOrder||a.recovery.start-b.recovery.start);
+ return [...recovered,...thread.messages.filter(m=>!m.recovery)];
+}
+export function recoveredSourceCurrent(message,vault,{includeExcluded=false}={}) {
+ if(!message.recovery)return true;
+ const r=message.recovery,source=vault.messages.find(m=>m.id===r.sourceMessageId);
+ if(!source||(!includeExcluded&&(['forgotten','retired','deleted','excluded'].includes(source.status)||source.forgotten||source.retired||source.deleted||source.excluded||source.forgottenAt||source.retiredAt||source.deletedAt||source.excludedAt)))return false;
+ return source?.storyId===message.storyId&&source?.chatId===message.chatId&&typeof source.text==='string'&&source.text.slice(r.start,r.end)===message.text&&source.text.slice(r.headerStart,r.headerEnd)===r.contextText&&source.text.slice(source.text.lastIndexOf('\n',r.start-1)+1,r.start)===r.linePrefix;
+}
+export function phoneTimestampInstant(s) {
+ const parts=typeof s==='string'&&s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/);
+ if(!parts||!Number.isFinite(Date.parse(s)))return false;
+ const [,year,month,day,hour,minute,second]=parts.map(Number),days=[31,year%4===0&&(year%100!==0||year%400===0)?29:28,31,30,31,30,31,31,30,31,30,31];
+ return year>0&&month>=1&&month<=12&&day>=1&&day<=days[month-1]&&hour<=23&&minute<=59&&second<=59;
+}
+function validateRecovery(m,vault,known) {
+ const r=m.recovery,source=vault.messages.find(s=>s.id===r?.sourceMessageId);
+ if(!object(r)||r.version!==1||!source||!recoveredSourceCurrent(m,vault,{includeExcluded:true})||!Number.isSafeInteger(r.start)||r.start<0||!Number.isSafeInteger(r.end)||r.end<=r.start||r.end>source.text.length||!Number.isSafeInteger(r.headerStart)||r.headerStart<0||!Number.isSafeInteger(r.headerEnd)||r.headerEnd<r.headerStart||r.headerEnd>source.text.length||!(r.sourceOrdinal===null||Number.isFinite(r.sourceOrdinal))||!Number.isSafeInteger(r.sourcePosition)||r.sourcePosition<0||!text(r.senderLabel)||!ids(r.participantLabels)||!r.participantLabels.length||!Array.isArray(r.identities)||!text(r.importedAt)||!Number.isFinite(Date.parse(r.importedAt)))fail('Invalid recovered message source or metadata.');
+ if(r.key!==JSON.stringify([m.storyId,m.chatId,r.sourceMessageId,r.start,r.end])||!Array.isArray(m.sourceMessageIds)||m.sourceMessageIds.length!==1||m.sourceMessageIds[0]!==r.sourceMessageId)fail('Invalid recovered source key.');
+ const labels=[...new Set([r.senderLabel,...r.participantLabels])];
+ if(!Number.isSafeInteger(r.transcriptOrder)||r.transcriptOrder<0)fail('Invalid recovered transcript order.');
+ if(r.identities.length!==labels.length||r.identities.some(entry=>!object(entry)||!text(entry.label)||!labels.includes(entry.label)||!known.has(entry.id))||new Set(r.identities.map(entry=>entry.label)).size!==labels.length)fail('Invalid recovered sender identity.');
+ const identities=Object.fromEntries(r.identities.map(entry=>[entry.label,entry.id]));
+ if(identities[r.senderLabel]!==m.senderId)fail('Invalid recovered sender identity.');
+ const audience=[...new Set(r.participantLabels.map(label=>identities[label]))];
+ if(audience.length!==m.audienceIds.length||audience.some(id=>!m.audienceIds.includes(id)))fail('Recovered recipients do not match reviewed evidence.');
+ const names=[...vault.personas.filter(p=>p.id===vault.stories.find(s=>s.id===m.storyId)?.personaId),...vault.characters];
+ for(const label of labels){const matches=names.filter(p=>p.name?.toLocaleLowerCase()===label.toLocaleLowerCase());if(matches.length===1&&matches[0].id!==identities[label])fail('Recovered identity contradicts the source name.');}
+ const header=r.contextText?.trim().replace(/^\*\*(.*?)\*\*$/,'$1');
+ const group=header?.match(/^Group chat:\s*(.+?)\s*\(Members:\s*(.+?)\)$/i),privateBlock=header?.match(/^(?:Text conversation|Texts between):\s*(.+)$/i),inline=header?.match(/^([^:\n]+?) (?:texted|sent a text to|replied by text to) ([^:\n]+?):[ \t]*["“]/i);
+ const cleanLabel=s=>s.trim().replace(/^\*\*(.*?)\*\*$/,'$1');
+ const participants=group?group[2].split(',').map(cleanLabel):privateBlock?privateBlock[1].split(',').map(cleanLabel):inline?[cleanLabel(inline[1]),cleanLabel(inline[2])]:null;
+ if(!participants||JSON.stringify(participants)!==JSON.stringify(r.participantLabels)||!r.linePrefix.toLocaleLowerCase().includes(r.senderLabel.toLocaleLowerCase()))fail('Recovered recipient or sender labels lack source evidence.');
+ if(r.timestampText!==null&&(!text(r.timestampText)||!source.text.slice(r.headerEnd,r.end).includes('['+r.timestampText+']')))fail('Invalid recovered timestamp evidence.');
+ if(r.timestampText!==null&&!phoneTimestampInstant(r.timestampText)&&!/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(r.timestampText))fail('Invalid recovered send time.');
+ const full=typeof r.timestampText==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(r.timestampText);
+ if(full?m.createdAt!==r.timestampText||!phoneTimestampInstant(m.createdAt):m.createdAt!==null)fail('Recovered messages must preserve unknown send times.');
 }
 export function validateStoryPhone(story, vault) {
   if (story.phone === undefined) return;
@@ -91,7 +133,7 @@ export function validateStoryPhone(story, vault) {
   const castIds = new Set(getPhoneContacts(vault,story.id).map(c=>c.id));
   const characterIds = new Set(vault.characters.map(c => c.id)), known = new Set([story.personaId,...characterIds]);
   for (const [id,name] of Object.entries(p.contactDisplayNames)) if (!characterIds.has(id) || !text(name)) fail('Invalid contact nickname.');
-  const threads = new Set(), messages = new Set(), privateKeys = new Set();
+  const threads = new Set(), messages = new Set(), privateKeys = new Set(), recoveryKeys=new Set();
   for (const t of p.threads) {
     if (!object(t) || !text(t.id) || threads.has(t.id)) fail('Invalid or duplicate thread ID.');threads.add(t.id);
     owner(vault,story.id,t.chatId);
@@ -101,9 +143,10 @@ export function validateStoryPhone(story, vault) {
     let ordinal=0;
     for (const m of t.messages) {
       if (!object(m) || !text(m.id) || messages.has(m.id)) fail('Invalid or duplicate message ID.');messages.add(m.id);
-      if (m.storyId !== story.id || m.chatId !== t.chatId || !Number.isSafeInteger(m.ordinal) || m.ordinal <= ordinal || !text(m.text,80000) || (typeof m.createdAt !== 'string' || !Number.isFinite(Date.parse(m.createdAt)))) fail('Invalid message content, time, or ownership.'); ordinal=m.ordinal;
+      if (m.storyId !== story.id || m.chatId !== t.chatId || !Number.isSafeInteger(m.ordinal) || m.ordinal <= ordinal || !text(m.text,80000) || (!m.recovery&&(typeof m.createdAt !== 'string' || !Number.isFinite(Date.parse(m.createdAt))))) fail('Invalid message content, time, or ownership.'); ordinal=m.ordinal;
       if (!ids(m.audienceIds) || !m.audienceIds.includes(story.personaId) || !m.audienceIds.includes(m.senderId) || m.audienceIds.some(id => !known.has(id))) fail('Invalid historical message recipients.');
       if (!(m.senderType === 'persona' && m.senderId === story.personaId) && !(m.senderType === 'character' && characterIds.has(m.senderId))) fail('Invalid canonical sender.');
+      if(m.recovery){validateRecovery(m,vault,known);if(recoveryKeys.has(m.recovery.key))fail('Duplicate recovered message.');recoveryKeys.add(m.recovery.key);}
       for (const [field,collection] of [['sourceMessageIds','messages'],['sourceMemoryIds','memoryEntries'],['sourceMilestoneIds','milestones']]) {
         if (m[field] === undefined) continue;
         if (!ids(m[field]) || m[field].some(id => !vault[collection].some(r => r.id === id))) fail('Unavailable message provenance.');
