@@ -1,3 +1,7 @@
+import { createStoryPhone } from "./ui/story-phone.js";
+import { appendPhoneMessage, markPhoneThreadRead } from "./phone/phone-state.js";
+import { reconcilePhoneDependencies } from "./phone/phone-context.js";
+import { runPhoneTurn } from "./phone/phone-engine.js";
 import { createStoryScroller, isMobileStoryLayout } from "./ui/story-scroller.js";
 import { prepareVaultRegeneration, completeVaultRegeneration } from "./chat/regeneration.js";
 import { mountMilestoneNotifications } from "./ui/milestone-notifications.js";
@@ -25,6 +29,7 @@ let settingsFormSnapshot="";
 let settingsModelSnapshot="",settingsModelFormSnapshot="";
 const modelIndependentSignature=()=>JSON.stringify(["temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
 const settingsFormSignature=()=>JSON.stringify(["modelName","temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
+let storyPhone,phoneBusy=false;
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, pendingBlockedReview = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const LAST_STORY_KEY="vesper.ui.lastStoryId";
@@ -51,6 +56,49 @@ function usageCycleKeyForEntry(entry){const d=new Date(entry.createdAt);return N
 function queryCountCurrentCycle(){const cycle=usageCycleKey();return (vault?.usageEntries||[]).filter(e=>usageCycleKeyForEntry(e)===cycle).length;}
 function renderQueryMeter(){const el=$("queryCount");if(el)el.textContent=`${queryCountCurrentCycle().toLocaleString()} / ${QUERY_LIMIT.toLocaleString()}`;}
 function recordTurnUsage(result,{storyId,chatId,model}){const usages=result?.usage||[];for(const usage of usages){vault.usageEntries.push(recordUsage({storyId,chatId,model,promptTokens:usage?.prompt_tokens||0,completionTokens:usage?.completion_tokens||0,cost:null}));}renderQueryMeter();}
+
+function applyPhoneUsage(entry,usage){
+  const tokens=value=>Number.isFinite(value)&&value>=0?value:0;
+  entry.promptTokens=tokens(usage?.prompt_tokens);entry.completionTokens=tokens(usage?.completion_tokens);entry.totalTokens=entry.promptTokens+entry.completionTokens;
+}
+function reconcilePhoneRecords(){
+  const clean=reconcilePhoneDependencies(vault);
+  for(const story of vault.stories)if(story.phone)story.phone=clean.stories.find(s=>s.id===story.id).phone;
+}
+async function commitPhoneCandidate(candidate,expectedRevision){
+  candidate.updatedAt=new Date().toISOString();
+  await saveVaultAtomic(db,candidate,{expectedRevision});
+  vault=candidate;renderQueryMeter();storyPhone?.refresh();
+}
+async function sendPhoneMessage({storyId,threadId,text,action,onSubmitted,isViewed}){
+  if(sending||phoneBusy)throw new Error("Wait for the current request to finish.");
+  const story=vault.stories.find(s=>s.id===storyId),thread=story?.phone?.threads.find(t=>t.id===threadId);
+  if(!thread)throw new Error("Phone thread is unavailable.");
+  if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY))throw new Error("Add your OpenRouter API key in Settings first.");
+  const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
+  phoneBusy=true;
+  try{
+    let candidate=action==="send"?appendPhoneMessage(vault,storyId,threadId,{senderType:"persona",senderId:story.personaId,text:text.trim()}):structuredClone(vault);
+    const entry=recordUsage({storyId,chatId:thread.chatId,model});candidate.usageEntries.push(entry);
+    await commitPhoneCandidate(candidate,vault.storageRevision);onSubmitted?.();
+    const requestVault=structuredClone(vault),revision=vault.storageRevision;
+    // Legacy stories resolve their model without rewriting the stored settings.
+    const generationVault=structuredClone(requestVault),generationStory=generationVault.stories.find(s=>s.id===storyId);
+    generationStory.settings={...(generationStory.settings||{}),model};
+    let result;
+    try{result=await runPhoneTurn({vault:generationVault,storyId,threadId,action});}
+    catch(error){
+      if(error?.phoneUsage){const accounted=structuredClone(requestVault);applyPhoneUsage(accounted.usageEntries.find(e=>e.id===entry.id),error.phoneUsage);await commitPhoneCandidate(accounted,revision);}
+      throw error;
+    }
+    candidate=structuredClone(requestVault);
+    for(const message of result.messages)candidate=appendPhoneMessage(candidate,storyId,threadId,message);
+    if(isViewed?.())candidate=markPhoneThreadRead(candidate,storyId,threadId);
+    const usage=candidate.usageEntries.find(e=>e.id===entry.id);
+    applyPhoneUsage(usage,result.usage);
+    await commitPhoneCandidate(candidate,revision);
+  }finally{phoneBusy=false;storyPhone?.refresh();}
+}
 
 function applyVenomousAssistantRole(){
   let changed=false;
@@ -124,6 +172,7 @@ async function boot() {
     if(event.kind==="replace" || importingBackup)milestoneNotifications.baseline(event.vault);
     else milestoneNotifications.observe(event.vault);
   });
+  storyPhone=createStoryPhone({getSnapshot:()=>({vault,revision:vault.storageRevision,storyId:activeStoryId,chatId:activeChatId,storyVisible:!$("chatView").hidden}),commitCandidate:commitPhoneCandidate,sendPhoneMessage,cancelStoryScroll:()=>storyScroller?.cancel(),isBusy:()=>sending||phoneBusy,onError:message=>showStatus("Phone: "+message,"error")});
   bindUi(); render();
   if(!hadUserData)showStatus("Vesper loaded an empty local vault. No automatic write was made.","error");
 }
@@ -521,14 +570,15 @@ async function confirmDeleteStory(){
   vault.personas=vault.personas.filter(x=>x.storyId!==storyId&&x.id!==story.personaId);
   const charIds=new Set([story.primaryCharacterId,...(story.characterIds||[])].filter(Boolean));
   vault.characters=vault.characters.filter(x=>x.storyId!==storyId&&!charIds.has(x.id));
-  vault.stories=vault.stories.filter(x=>x.id!==storyId);vault.updatedAt=new Date().toISOString();
+  vault.stories=vault.stories.filter(x=>x.id!==storyId);reconcilePhoneRecords();vault.updatedAt=new Date().toISOString();
   if(activeStoryId===storyId){activeStoryId=null;activeChatId=null;}
   await saveVaultAtomic(db,vault);closeDeleteStory();showLibrary();
 }
 function showLibrary(){
+  storyPhone?.close();
   storyScroller?.cancel();document.querySelector(".app-shell").classList.remove("story-open");
   rememberTab("library");renderQueryMeter();
-  $("dataView").hidden=true;$("chatView").hidden=true;$("emptyState").hidden=false;
+  $("dataView").hidden=true;$("chatView").hidden=true;$("emptyState").hidden=false;storyPhone?.refresh();
   const library=$("storyLibrary");library.replaceChildren();
   const choices=listStoryChoices(vault);
   if(!choices.length){const empty=document.createElement("div");empty.className="library-empty";empty.textContent="No stories yet. Create one or import your Noctis vault.";library.append(empty);}
@@ -551,9 +601,10 @@ function showLibrary(){
   ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));$("libraryNavButton").classList.add("active");
 }
 function showDataView(kind){
+  storyPhone?.close();
   storyScroller?.cancel();document.querySelector(".app-shell").classList.remove("story-open");
   rememberTab(kind);
-  $("emptyState").hidden=true;$("chatView").hidden=true;$("dataView").hidden=false;
+  $("emptyState").hidden=true;$("chatView").hidden=true;$("dataView").hidden=false;storyPhone?.refresh();
   const isMemory=kind==="memory",storyId=activeStoryId;
   $("dataEyebrow").textContent=storyId?(vault.stories.find(s=>s.id===storyId)?.title||"ACTIVE STORY"):"VESPER";
   $("dataTitle").textContent=isMemory?"Memory":"Milestones";
@@ -605,6 +656,7 @@ async function deleteMessageBranch(message){
   vault.milestones=(vault.milestones||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
   vault.knowledgeEntries=(vault.knowledgeEntries||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
   vault.statEvents=(vault.statEvents||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
+  reconcilePhoneRecords();
   retryMessageId=null;retryOpeningStoryId=null;vault.updatedAt=new Date().toISOString();
   await saveVaultAtomic(db,vault);
   renderStory(message.storyId,message.chatId);
@@ -677,6 +729,6 @@ function bindMessageScroller(){
   if(!storyScroller)storyScroller=createStoryScroller({scroller:$("messages"),button:$("scrollBottomButton"),shell:document.querySelector(".app-shell")});
 }
 function jumpMessagesToLatest(smooth=false){bindMessageScroller();storyScroller.position({smooth});}
-function renderStory(storyId,chatId,scrollIntent="bottom"){const shell=document.querySelector(".app-shell");shell.classList.add("story-open");rememberTab("story");rememberStory(storyId);renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId,scrollIntent="bottom"){if(activeStoryId!==storyId||activeChatId!==chatId)storyPhone?.close();const shell=document.querySelector(".app-shell");shell.classList.add("story-open");rememberTab("story");rememberStory(storyId);renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;storyPhone?.refresh();$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||"")))).sort((x,y)=>{const xo=Number(x.ordinal),yo=Number(y.ordinal);if(Number.isFinite(xo)&&Number.isFinite(yo)&&xo!==yo)return xo-yo;return String(x.createdAt||"").localeCompare(String(y.createdAt||""));});$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=rows.at(-1);if(!sending&&!rows.length&&s?.openingScene){retryMessageId=null;retryOpeningStoryId=s.id;showRetry(true,"Generate Opening");showStatus("This story has no opener yet.","notice");}else if(!sending&&latest?.role==="user"){retryOpeningStoryId=null;retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){if(retryOpeningStoryId===storyId)retryOpeningStoryId=null;showRetry(false);}bindMessageScroller();storyScroller.position({target:scrollIntent==="message"?$("messages").lastElementChild:null});}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});

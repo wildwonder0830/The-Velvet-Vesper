@@ -1,3 +1,4 @@
+import { validateStoryPhone } from "../phone/phone-state.js";
 import { validateVault } from "../schema.js";
 
 const COLLECTIONS = ["personas","characters","stories","chats","messages","loreEntries","memoryEntries","milestones","relationships","statDefinitions","statEvents","sceneStates","knowledgeEntries","preferenceLines","usageEntries","migrationLog"];
@@ -76,6 +77,7 @@ export function validateVesperBackup(vault) {
       if (["story","persona","character"].includes(row.scope)) reference(row,`${row.scope}Id`,{story:"stories",persona:"personas",character:"characters"}[row.scope],path,true);
     }
   }
+  for (const {row,path} of lists.stories) { try { validateStoryPhone(row,vault); } catch(e) { error(`${path}.phone`,e.message); } }
   return {ok:errors.length === 0, errors};
 }
 
