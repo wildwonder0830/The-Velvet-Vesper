@@ -15,11 +15,29 @@ async def run():
    await page.click('#memoryNavButton');await page.click('#storyNavButton');await page.wait_for_timeout(500)
    assert await page.evaluate("(()=>{const s=document.getElementById('messages');return s.scrollHeight-s.scrollTop-s.clientHeight<2;})()")
    assert await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js');return s.loadVault(await s.openVesperDb());}")==baseline
+   mobile=await page.evaluate("matchMedia('(max-width: 799px), (hover: none) and (pointer: coarse)').matches")
+   if mobile:
+    assert not await page.locator('#messageInput').is_visible()
+    assert metrics['scrollerHeight']>metrics['viewport']*.6
+    await page.click('#mobileWriteButton');await page.fill('#messageInput','Unsent synthetic draft.')
+    await page.click('#mobileWriteButton');assert not await page.locator('#messageInput').is_visible()
+    await page.click('#memoryNavButton');await page.click('#storyNavButton');assert await page.input_value('#messageInput')=='Unsent synthetic draft.'
+    await page.click('#mobileWriteButton');assert await page.input_value('#messageInput')=='Unsent synthetic draft.'
+    # Simulated keyboard shrink: editor scrolls within the visible viewport.
+    vp=page.viewport_size;await page.set_viewport_size({'width':vp['width'],'height':420});await page.wait_for_timeout(100)
+    await page.locator('#sendButton').scroll_into_view_if_needed();box=await page.locator('#sendButton').bounding_box();assert box['y']>=0 and box['y']+box['height']<=420
+    await page.set_viewport_size(vp);await page.click('#mobileWriteButton');await page.wait_for_timeout(500)
+   else:
+    assert await page.locator('#messageInput').is_visible();assert not await page.locator('#mobileWriteButton').is_visible()
+   assert await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js');return s.loadVault(await s.openVesperDb());}")==baseline
    bodies=[];release=asyncio.Event();received=asyncio.Event()
    async def provider(r):
     bodies.append(r.request.post_data_json);received.set();await release.wait();await r.fulfill(json={'choices':[{'message':{'content':'\n\n'.join('Neutral replacement paragraph '+str(i)+'. The garden gate stood beneath a quiet sky.' for i in range(24))}}]})
-   await ctx.route('https://openrouter.ai/**',provider);await page.fill('#messageInput','Synthetic neutral input.');await page.click('#sendButton');await asyncio.wait_for(received.wait(),15);await page.wait_for_timeout(500)
+   await ctx.route('https://openrouter.ai/**',provider);
+   if mobile:await page.click('#mobileWriteButton')
+   await page.fill('#messageInput','Synthetic neutral input.');await page.click('#sendButton');await asyncio.wait_for(received.wait(),15);await page.wait_for_timeout(500)
    assert await page.evaluate("(()=>{const s=document.getElementById('messages');return Math.abs(s.lastElementChild.getBoundingClientRect().top-s.getBoundingClientRect().top-16)<3;})()")
+   if mobile:assert not await page.locator('#messageInput').is_visible()
    release.set();await page.wait_for_function("document.querySelectorAll('.message').length>=14");await page.wait_for_timeout(350)
    after=await page.evaluate('''()=>{const s=document.getElementById('messages'),r=s.getBoundingClientRect(),l=s.lastElementChild.getBoundingClientRect();return {windowY:scrollY,scrollerHeight:s.clientHeight,bottomGap:s.scrollHeight-s.scrollTop-s.clientHeight,newResponseStart:l.top-r.top};}''')
    assert after['windowY']==0 and abs(after['newResponseStart']-16)<3 and after['bottomGap']>100
@@ -33,11 +51,13 @@ async def run():
    # A short replacement also aligns at the beginning without document scrolling.
    await ctx.unroute('https://openrouter.ai/**',provider)
    await ctx.route('https://openrouter.ai/**',lambda r:r.fulfill(json={'choices':[{'message':{'content':'The garden gate stood beneath a quiet sky.'}}]}))
+   if mobile:await page.click('#mobileWriteButton')
    await page.fill('#messageInput','Another synthetic input.');await page.click('#sendButton');await page.wait_for_function("document.querySelectorAll('.message').length===16");await page.wait_for_timeout(600)
    assert await page.evaluate("(()=>{const s=document.getElementById('messages');return Math.abs(s.lastElementChild.getBoundingClientRect().top-s.getBoundingClientRect().top-16)<3&&scrollY===0;})()")
    await page.reload();await page.locator('.message').last.wait_for();await page.wait_for_timeout(600)
    assert await page.evaluate("(()=>{const s=document.getElementById('messages');return s.scrollHeight-s.scrollTop-s.clientHeight<2&&scrollY===0;})()")
    await page.screenshot(path='/tmp/story-scroll-'+device.replace(' ','_')+'.png')
+   if mobile:assert not await page.locator('#messageInput').is_visible()
    assert not errors,errors
    print(json.dumps({'device':device,'reopen':metrics,'newResponse':after}),flush=True);await ctx.close()
   await browser.close()

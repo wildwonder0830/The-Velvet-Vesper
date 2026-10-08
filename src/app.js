@@ -1,4 +1,4 @@
-import { createStoryScroller } from "./ui/story-scroller.js";
+import { createStoryScroller, mountMobileComposer } from "./ui/story-scroller.js";
 import { prepareVaultRegeneration, completeVaultRegeneration } from "./chat/regeneration.js";
 import { mountMilestoneNotifications } from "./ui/milestone-notifications.js";
 import { openVesperDb, loadVault, saveVaultAtomic, subscribeVaultSaves } from "./storage/vault-store.js";
@@ -127,7 +127,9 @@ async function boot() {
   bindUi(); render();
   if(!hadUserData)showStatus("Vesper loaded an empty local vault. No automatic write was made.","error");
 }
+let mobileComposer;
 function bindUi() {
+  mobileComposer=mountMobileComposer({composer:$("composer"),toggle:$("mobileWriteButton"),input:$("messageInput")});
   const on=(id,event,handler)=>{const el=$(id);if(el)el.addEventListener(event,handler);};
   on("importButton","click",()=>$("importFile")?.click()); on("importFile","change",handleImportFile); on("relationshipPill","click",showRelationshipStatus); on("libraryNavButton","click",showLibrary); on("storyNavButton","click",showActiveStory); on("memoryNavButton","click",()=>showDataView("memory")); on("milestonesNavButton","click",()=>showDataView("milestones")); on("dataBackButton","click",showActiveStory);
   $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
@@ -471,7 +473,7 @@ async function generateReplyForMessage({message,story,chat}){
     if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryMessageId=null;await saveVaultAtomic(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>{retryMessageId=message.id;await generateReplyForMessage({message,story,chat});}})){retryMessageId=message.id;showStatus("Reply held for your boundary review.","notice");return;}throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn\'t produce a valid reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
-    retryMessageId=null;await saveVaultAtomic(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id,"message");const composer=$("messageInput");composer.hidden=false;composer.focus({preventScroll:true});
+    retryMessageId=null;await saveVaultAtomic(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id,"message");const composer=$("messageInput");composer.hidden=false;if(!mobileComposer?.isMobile())composer.focus({preventScroll:true});
   }catch(error){retryMessageId=message.id;showStatus(`Generation failed: ${error.message}`,"error");showRetry(true);}
   finally{sending=false;activeGenerationController=null;$("sendButton").disabled=false;$("sendButton").hidden=false;$("stopButton").hidden=true;$("writingState").hidden=true;}
 }
@@ -484,10 +486,10 @@ async function sendTurn(event){
   if(commandMatch){
     $("messageInput").value="";
     const name=commandMatch[1].toLowerCase(),args=commandMatch[2].trim();
-    if(name==="continue"||name==="elaborate"){await runStoryTool(name);return;}
+    if(name==="continue"||name==="elaborate"){mobileComposer?.close();await runStoryTool(name);return;}
     if(name==="ooc"){
       if(!args){showStatus("Add an instruction after /ooc.","notice");return;}
-      await generateToolReply({story,chat,instruction:`[OOC: ${args}]`,label:"Applying OOC instruction…"});return;
+      mobileComposer?.close();await generateToolReply({story,chat,instruction:`[OOC: ${args}]`,label:"Applying OOC instruction…"});return;
     }
   }
   const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok){showStatus(runnable.reason,"error");return;}
@@ -497,7 +499,7 @@ async function sendTurn(event){
   const now=new Date().toISOString(),ordinal=nextMessageOrdinal(chat.id);
   const userMessage={id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now};
   vault.messages.push(userMessage);
-  $("messageInput").value="";await saveVaultAtomic(db,vault);renderStory(story.id,chat.id,"message");$("messageInput").focus({preventScroll:true});
+  $("messageInput").value="";await saveVaultAtomic(db,vault);mobileComposer?.close();renderStory(story.id,chat.id,"message");if(!mobileComposer?.isMobile())$("messageInput").focus({preventScroll:true});
   retryMessageId=userMessage.id;
   await generateReplyForMessage({message:userMessage,story,chat});
 }
@@ -526,7 +528,7 @@ async function confirmDeleteStory(){
   await saveVaultAtomic(db,vault);closeDeleteStory();showLibrary();
 }
 function showLibrary(){
-  storyScroller?.cancel();document.querySelector(".app-shell").classList.remove("story-open");
+  mobileComposer?.close();storyScroller?.cancel();document.querySelector(".app-shell").classList.remove("story-open");
   rememberTab("library");renderQueryMeter();
   $("dataView").hidden=true;$("chatView").hidden=true;$("emptyState").hidden=false;
   const library=$("storyLibrary");library.replaceChildren();
@@ -551,7 +553,7 @@ function showLibrary(){
   ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));$("libraryNavButton").classList.add("active");
 }
 function showDataView(kind){
-  storyScroller?.cancel();document.querySelector(".app-shell").classList.remove("story-open");
+  mobileComposer?.close();storyScroller?.cancel();document.querySelector(".app-shell").classList.remove("story-open");
   rememberTab(kind);
   $("emptyState").hidden=true;$("chatView").hidden=true;$("dataView").hidden=false;
   const isMemory=kind==="memory",storyId=activeStoryId;
@@ -677,6 +679,6 @@ function bindMessageScroller(){
   if(!storyScroller)storyScroller=createStoryScroller({scroller:$("messages"),button:$("scrollBottomButton"),shell:document.querySelector(".app-shell")});
 }
 function jumpMessagesToLatest(smooth=false){bindMessageScroller();storyScroller.position({smooth});}
-function renderStory(storyId,chatId,scrollIntent="bottom"){const shell=document.querySelector(".app-shell");shell.classList.add("story-open");rememberTab("story");rememberStory(storyId);renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId,scrollIntent="bottom"){if(scrollIntent==="bottom")mobileComposer?.close();const shell=document.querySelector(".app-shell");shell.classList.add("story-open");rememberTab("story");rememberStory(storyId);renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||"")))).sort((x,y)=>{const xo=Number(x.ordinal),yo=Number(y.ordinal);if(Number.isFinite(xo)&&Number.isFinite(yo)&&xo!==yo)return xo-yo;return String(x.createdAt||"").localeCompare(String(y.createdAt||""));});$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=rows.at(-1);if(!sending&&!rows.length&&s?.openingScene){retryMessageId=null;retryOpeningStoryId=s.id;showRetry(true,"Generate Opening");showStatus("This story has no opener yet.","notice");}else if(!sending&&latest?.role==="user"){retryOpeningStoryId=null;retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){if(retryOpeningStoryId===storyId)retryOpeningStoryId=null;showRetry(false);}bindMessageScroller();storyScroller.position({target:scrollIntent==="message"?$("messages").lastElementChild:null});}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});

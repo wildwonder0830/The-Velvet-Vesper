@@ -29,3 +29,19 @@ export function createStoryScroller({scroller,button,shell,window:win=window}) {
   win.addEventListener('resize',viewport,{passive:true});win.visualViewport?.addEventListener('resize',viewport,{passive:true});
   return {position,cancel,updateButton};
 }
+
+// Mobile-only disclosure. Draft text stays in the existing textarea, never in storage.
+export function mountMobileComposer({composer,toggle,input,window:win=window}) {
+  const media=win.matchMedia('(max-width: 799px), (hover: none) and (pointer: coarse)');
+  function setOpen(open){
+    composer.classList.toggle('composer-open',Boolean(open));
+    toggle.setAttribute('aria-expanded',String(Boolean(open)));
+    toggle.textContent=open?'Read Story':'Write';
+    if(media.matches){if(open)input.focus({preventScroll:true});else if(composer.contains(win.document.activeElement))win.document.activeElement.blur();}
+  }
+  toggle.addEventListener('click',()=>setOpen(!composer.classList.contains('composer-open')));
+  composer.addEventListener('keydown',event=>{if(event.key==='Escape'&&media.matches){setOpen(false);toggle.focus({preventScroll:true});}});
+  media.addEventListener('change',()=>setOpen(false));
+  setOpen(false);
+  return {close:()=>setOpen(false),isMobile:()=>media.matches};
+}
