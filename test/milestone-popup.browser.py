@@ -29,7 +29,7 @@ async def run():
    # Real synthetic backup restore through the existing UI; no historical replay.
    data=await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js');return await s.loadVault(await s.openVesperDb());}")
    historical=dict(data['milestones'][0]);historical.update(id='restored-history',type='celebration',title='Historical celebration',evidence='They celebrated.');data['milestones'].append(historical)
-   await page.click('#libraryNavButton');await page.locator('#importFile').set_input_files({'name':'synthetic-history.json','mimeType':'application/json','buffer':json.dumps(data).encode()});await page.locator('#confirmImport').wait_for();await page.click('#confirmImport');await page.locator('#importPreview').wait_for(state='hidden');assert not await toast.is_visible()
+   await page.click('#libraryNavButton');await page.locator('#importFile').set_input_files({'name':'synthetic-history.json','mimeType':'application/json','buffer':json.dumps(data).encode()});await page.locator('#confirmImport').wait_for();await page.check('#restoreBackupSaved');await page.click('#confirmImport');await page.wait_for_function("document.querySelector('#backupTransferContent').textContent.includes('restored successfully')");await page.click('#backupTransferClose');assert not await toast.is_visible()
    assert not errors,errors
    print(json.dumps({'device':device,'canonicalSaveToPopup':True,'provisionalSuppressed':True,'queueAndDismissAboveModal':True,'navigationSurvival':True,'duplicateReloadRestoreSuppressed':True,'pageErrors':errors}),flush=True)
    await ctx.close()

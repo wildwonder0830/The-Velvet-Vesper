@@ -10,6 +10,7 @@ import { previewImport, prepareImport } from "../src/migration/import-service.js
 class Element {
   constructor(tag) { this.tag = tag; this.children = []; this.textContent = ""; }
   set innerHTML(_) { throw new Error("Import preview must not parse HTML."); }
+  append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
 }
 
@@ -18,10 +19,14 @@ test("import preview treats malicious backup property names as literal text", as
   const handler = source.slice(source.indexOf("async function handleImportFile("), source.indexOf("async function confirmImport("));
   const preview = new Element("div");
   const confirmImport = () => {};
+  const baseline=emptyVault();
   const context = vm.createContext({
-    previewImport, prepareImport, confirmImport,
-    $: id => id === "importPreview" ? preview : preview.children.find(child => child.id === id),
-    document: { createElement: tag => new Element(tag) }
+    backupOperation:0,preparedImport:null,rollbackFile:null,importRevision:0,sending:false,phoneBusy:false,importingBackup:false,db:{},
+    loadVault:async()=>baseline, readBackupFile:async file=>prepareImport(JSON.parse(await file.text())), createBackupFile:()=>({}),
+    openTransfer:()=>{preview.hidden=false;},transferMessage:text=>{preview.textContent=text;return preview;},fileActions:()=>{},
+    transferButton:(content,label,id,action)=>{const b=new Element('button');b.textContent=label;b.id=id;b.onclick=action;content.children.push(b);return b;},
+    confirmImport,$:()=>preview,
+    document: { createElement: tag => {const e=new Element(tag);e.append=(...c)=>e.children.push(...c);return e;},createTextNode:text=>({textContent:text}) }
   });
   vm.runInContext(handler, context);
   const backup = emptyVault();
@@ -29,12 +34,8 @@ test("import preview treats malicious backup property names as literal text", as
   backup[payload] = [];
   await context.handleImportFile({ target: { files: [{ text: async () => JSON.stringify(backup) }] } });
   assert.equal(preview.hidden, false);
-  assert.equal(preview.children.length, 4, preview.textContent);
-  assert.equal(preview.children[0].textContent, "Import preview");
-  assert.ok(preview.children[1].textContent.includes(`${payload}: 0`));
-  assert.equal(preview.children[2].textContent, "No existing Vesper data changes until you confirm.");
-  const button = preview.children[3];
-  assert.equal(button.id, "confirmImport");
-  assert.equal(button.textContent, "Confirm Import");
-  assert.equal(button.onclick, confirmImport);
+  assert.ok(preview.textContent.includes('Validated:'));
+  assert.ok(!preview.textContent.includes(payload));
+  assert.equal(preview.children.find(c=>c.id==='confirmImport').onclick,confirmImport);
+  assert.equal(preview.children.find(c=>c.id==='confirmImport').disabled,true);
 });

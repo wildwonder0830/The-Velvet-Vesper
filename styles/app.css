@@ -148,3 +148,9 @@
   .story-open .messages{padding-bottom:calc(150px + var(--reply-tail,0px))}
   .story-open .scroll-bottom{position:fixed;bottom:calc(74px + var(--safe))}
 }
+/* Backup transfer is independent of the Story reading viewport. */
+#backupTransferPanel{z-index:1000;padding-bottom:max(18px,env(safe-area-inset-bottom))}
+#backupTransferPanel .settings-card{max-height:85vh;max-height:85dvh;overflow:auto;overflow-wrap:anywhere}
+#backupTransferContent{display:grid;gap:12px}
+#backupTransferContent button{min-height:44px;white-space:normal}
+#backupTransferContent input[type=checkbox]{display:inline-block;width:auto;margin:0 8px 0 0}

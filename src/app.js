@@ -1,3 +1,4 @@
+import { createBackupFile, shareBackup, downloadBackupFile, readBackupFile } from "./backup/backup-transfer.js";
 import { createStoryPhone } from "./ui/story-phone.js";
 import { appendPhoneMessage, markPhoneThreadRead } from "./phone/phone-state.js";
 import { reconcilePhoneDependencies } from "./phone/phone-context.js";
@@ -6,7 +7,7 @@ import { createStoryScroller, isMobileStoryLayout } from "./ui/story-scroller.js
 import { prepareVaultRegeneration, completeVaultRegeneration } from "./chat/regeneration.js";
 import { mountMilestoneNotifications } from "./ui/milestone-notifications.js";
 import { openVesperDb, loadVault, saveVaultAtomic, subscribeVaultSaves } from "./storage/vault-store.js";
-import { previewImport, prepareImport, commitPreparedImport } from "./migration/import-service.js";
+import { commitPreparedImport } from "./migration/import-service.js";
 import { makeId } from "./schema.js";
 const VESPER_APP_VERSION = "1.1.1";
 const VESPER_SCHEMA_VERSION = 1;
@@ -18,7 +19,6 @@ import { replaceOpenRouterKey, getDeviceSecret, DEVICE_SECRET_NAMES } from "./se
 import { seedDefaultGreenLines } from "./rules/preference-lines.js";
 import { storyIsRunnable, listStoryChoices, chooseInitialChat } from "./library/story-selection.js";
 import { recordUsage } from "./usage/usage-ledger.js";
-import { serializePortableBackup } from "./backup/vesper-backup.js";
 import { normalizeIntimacyStyle } from "./settings/intimacy-style.js";
 import { modelOptions, validateModelId } from "./settings/model-registry.js";
 
@@ -179,7 +179,7 @@ async function boot() {
 }
 function bindUi() {
   const on=(id,event,handler)=>{const el=$(id);if(el)el.addEventListener(event,handler);};
-  on("importButton","click",()=>$("importFile")?.click()); on("importFile","change",handleImportFile); on("relationshipPill","click",showRelationshipStatus); on("libraryNavButton","click",showLibrary); on("storyNavButton","click",showActiveStory); on("memoryNavButton","click",()=>showDataView("memory")); on("milestonesNavButton","click",()=>showDataView("milestones")); on("dataBackButton","click",showActiveStory);
+  on("importButton","click",()=>{const input=$("importFile");input.value="";input.click();}); on("importFile","change",handleImportFile); on("relationshipPill","click",showRelationshipStatus); on("libraryNavButton","click",showLibrary); on("storyNavButton","click",showActiveStory); on("memoryNavButton","click",()=>showDataView("memory")); on("milestonesNavButton","click",()=>showDataView("milestones")); on("dataBackButton","click",showActiveStory);
   $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
   $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
   $("continueButton").onclick=()=>runStoryTool("continue");
@@ -193,28 +193,45 @@ function bindUi() {
 }
 
 function backupFilename(){const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")+"_"+[String(d.getHours()).padStart(2,"0"),String(d.getMinutes()).padStart(2,"0")].join("-");return `Vesper_Backup_${stamp}.json`;}
+let backupOperation = 0, importRevision = null, rollbackFile = null;
+function transferMessage(text) { const content=$("backupTransferContent");content.replaceChildren();const p=document.createElement("p");p.textContent=text;content.append(p);return content; }
+function openTransfer(title) { $("backupTransferTitle").textContent=title;$("backupTransferPanel").hidden=false;$("backupTransferClose").onclick=()=>{if(importingBackup)return;backupOperation++;preparedImport=null;rollbackFile=null;$("backupTransferPanel").hidden=true;$("backupTransferContent").replaceChildren();}; }
+function transferButton(content,label,id,action) { const button=document.createElement("button");button.type="button";button.className="secondary";button.textContent=label;button.id=id;button.onclick=action;content.append(button);return button; }
+function fileActions(content,file,done=()=>{}) {
+  if(navigator.canShare?.({files:[file]})) transferButton(content,"Share / Save to Files","shareBackup",async()=>{try{if(await shareBackup(file))done();}catch(error){const p=document.createElement("p");p.textContent=`Share failed: ${error?.message||"The operation was interrupted."}. Use Download JSON.`;content.append(p);}});
+  transferButton(content,"Download JSON","downloadBackupFile",()=>{downloadBackupFile(file);done();});
+}
 async function downloadBackup(){
-  try{
-    vault.updatedAt=new Date().toISOString();await saveVaultAtomic(db,vault);
-    const json=serializePortableBackup(vault),blob=new Blob([json],{type:"application/json"}),url=URL.createObjectURL(blob),link=document.createElement("a");
-    link.href=url;link.download=backupFilename();document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
-    showStatus("Backup created. Keep that JSON file somewhere safe.","notice");
-  }catch(error){showStatus(`Backup failed: ${error.message}`,"error");}
+  openTransfer("Export Backup");const token=++backupOperation;transferMessage("Preparing and checking backup…");
+  try{await new Promise(resolve=>setTimeout(resolve,0));const snapshot=await loadVault(db),file=createBackupFile(snapshot,backupFilename());if(token!==backupOperation)return;
+    const content=transferMessage("Backup ready. On iPhone/iPad, choose Share / Save to Files, then Save to Files in the share sheet. If unavailable, Download JSON opens the browser’s download workflow. Export does not change saved data.");fileActions(content,file);
+  }catch(error){if(token===backupOperation)transferMessage(`Backup failed: ${error?.message||"The operation was interrupted."}`);}
 }
-
 async function handleImportFile(e){
-  const file=e.target.files?.[0]; if(!file)return;
-  try{const source=JSON.parse(await file.text()), preview=previewImport(source); preparedImport=prepareImport(source);
-    const counts=preview.counts||preparedImport.preview?.counts||{}; $("importPreview").hidden=false;
-    const heading=document.createElement("strong"),countText=document.createElement("p"),notice=document.createElement("p"),button=document.createElement("button");
-    heading.textContent="Import preview";
-    countText.textContent=Object.entries(counts).map(([k,v])=>`${k}: ${v}`).join(" · ");
-    notice.textContent="No existing Vesper data changes until you confirm.";
-    button.className="primary";button.id="confirmImport";button.textContent="Confirm Import";button.onclick=confirmImport;
-    $("importPreview").replaceChildren(heading,countText,notice,button);
-  }catch(error){$("importPreview").hidden=false;$("importPreview").textContent=`Import error: ${error.message}`;}
+  const file=e.target.files?.[0];if(!file)return;if(sending||phoneBusy||importingBackup){openTransfer("Restore Backup");transferMessage("Finish the current operation before restoring. Nothing was changed.");return;}const token=++backupOperation;preparedImport=null;rollbackFile=null;openTransfer("Restore Backup");
+  try{
+    const baseline=await loadVault(db);importRevision=baseline.storageRevision;
+    const prepared=await readBackupFile(file,text=>{if(token===backupOperation)transferMessage(text);});if(token!==backupOperation)return;
+    preparedImport=prepared;rollbackFile=createBackupFile(baseline,`Vesper_Before_Restore_${Date.now()}.json`);
+    const counts=prepared.vault,content=transferMessage(`Validated: ${counts.stories.length} stories, ${counts.chats.length} chats, ${counts.messages.length} messages. ${prepared.importMode==="replace"?`REPLACE: all current vault records (${baseline.stories.length} stories, ${baseline.messages.length} messages) will be replaced by this backup; records absent from it will be removed.`:"MERGE: incoming Noctis records will be added; existing records are retained. Conflicting or repeated imports are rejected."} Your device API key is unchanged. Nothing has been imported.`);
+    const details=document.createElement("p");
+    details.textContent=["personas","characters","memoryEntries","milestones","relationships","sceneStates","knowledgeEntries","loreEntries","preferenceLines","usageEntries"].map(key=>`${key}: ${counts[key]?.length||0}`).join(" · ");
+    const phoneThreads=counts.stories.flatMap(story=>story.phone?.threads||[]);
+    details.textContent+=` · phone threads: ${phoneThreads.length} · phone messages: ${phoneThreads.reduce((n,thread)=>n+(thread.messages?.length||0),0)}. Story settings and phone history are included.`;
+    content.append(details);
+    fileActions(content,rollbackFile);
+    const label=document.createElement("label"),check=document.createElement("input");check.type="checkbox";check.id="restoreBackupSaved";label.append(check,document.createTextNode(" I saved the rollback JSON to Files and understand the restore effects."));content.append(label);
+    const button=transferButton(content,"Confirm Import","confirmImport",confirmImport);button.disabled=true;check.onchange=()=>{button.disabled=!check.checked;};
+    transferButton(content,"Cancel","cancelImport",()=>{$("backupTransferClose").click();});
+  }catch(error){if(token===backupOperation){preparedImport=null;transferMessage(`Import error: ${error?.message||"The operation was interrupted."} Nothing was changed.`);}}
 }
-async function confirmImport(){if(!preparedImport)return;const button=$("confirmImport");if(button){button.disabled=true;button.textContent="Importing…";}try{importingBackup=true;await commitPreparedImport(db,preparedImport,{expectedRevision:vault.storageRevision});vault=await loadVault(db);preparedImport=null;const preview=$("importPreview");preview.hidden=true;preview.replaceChildren();const input=$("importFile");if(input)input.value="";render();showStatus("Backup imported successfully.","notice");}catch(error){if(button){button.disabled=false;button.textContent="Confirm Import";}showStatus(`Import failed: ${error.message}`,"error");}finally{importingBackup=false;}}
+async function confirmImport(){
+  if(!preparedImport||!$("restoreBackupSaved")?.checked)return;const prepared=preparedImport;const revision=importRevision;let committed=false;
+  importingBackup=true;$("backupTransferClose").disabled=true;transferMessage("Restoring backup atomically… Please keep this app open.");
+  try{await new Promise(resolve=>setTimeout(resolve,0));await commitPreparedImport(db,prepared,{expectedRevision:revision});committed=true;preparedImport=null;vault=await loadVault(db);$("importFile").value="";render();transferMessage("Backup restored successfully. Saved stories and messages are ready. Keep your pre-restore backup for recovery.");}
+  catch(error){preparedImport=null;transferMessage(committed?`Backup was restored, but refreshing the screen failed: ${error?.message||"The operation was interrupted."} Reload the app to view the saved data.`:`Import failed: ${error?.message||"The operation was interrupted."} The restore transaction did not change your saved data. Select the file again to refresh the preview.`);}
+  finally{importingBackup=false;$("backupTransferClose").disabled=false;}
+}
 function applyStoryTemplate(){
   const template=$("setupTemplate")?.value;
   if(template==="blackthorn"){

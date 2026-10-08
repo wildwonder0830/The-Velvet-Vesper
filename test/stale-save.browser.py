@@ -33,7 +33,7 @@ async def run():
    portable=await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js'),b=await import('./src/backup/vesper-backup.js');return b.serializePortableBackup(await s.loadVault(await s.openVesperDb()));}")
    await page.locator('#importFile').set_input_files({'name':'synthetic-stale-restore.json','mimeType':'application/json','buffer':portable.encode()});await page.locator('#confirmImport').wait_for()
    before=await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js'),db=await s.openVesperDb(),v=await s.loadVault(db);v.messages.push({id:'concurrent-new',storyId:'s',chatId:'c',role:'user',text:'Newer than import preview.',ordinal:2});await s.saveVaultAtomic(db,v);return JSON.stringify(await s.loadVault(db));}")
-   await page.click('#confirmImport');await page.wait_for_function("document.querySelector('#status').textContent.includes('vault changed')")
+   await page.check('#restoreBackupSaved');await page.click('#confirmImport');await page.wait_for_function("document.querySelector('#backupTransferContent').textContent.includes('vault changed')")
    after=await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js');return JSON.stringify(await s.loadVault(await s.openVesperDb()));}");assert before==after
    result['staleRestoreRejectedUnchanged']=True
    assert not errors,errors;print(json.dumps({'device':device,**result,'reloadNewest':True,'ui':'passed','pageErrors':errors}),flush=True);await ctx.close()

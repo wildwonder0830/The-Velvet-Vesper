@@ -44,7 +44,7 @@ export function prepareImport(source) {
   }
   if (detected.type === "vesper") {
     requireValidBackup(validateVesperBackup(source),"Vesper");
-    return { vault: structuredClone(source), preview: previewImport(source), warnings: [], importMode: "replace" };
+    return { vault: structuredClone(source), preview: { detected, valid: true, counts: Object.fromEntries(ARRAY_KEYS.map(key=>[key,source[key]?.length||0])) }, warnings: [], importMode: "replace" };
   }
   throw new Error("Unsupported backup format. Nothing was changed.");
 }

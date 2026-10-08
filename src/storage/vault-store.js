@@ -6,7 +6,7 @@ const saveListeners=new Set();
 export function subscribeVaultSaves(listener){saveListeners.add(listener);return ()=>saveListeners.delete(listener);}
 function notifySaved(db,vault,kind){for(const listener of saveListeners){try{listener({dbName:db.name,vault:structuredClone(vault),kind});}catch{}}}
 function requestAsPromise(r){return new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
-function transactionDone(t){return new Promise((resolve,reject)=>{t.oncomplete=()=>resolve();t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error||new Error("Transaction aborted."));});}
+function transactionDone(t){return new Promise((resolve,reject)=>{t.oncomplete=()=>resolve();t.onerror=()=>reject(t.error||new Error("Transaction aborted. Your saved data was kept."));t.onabort=()=>reject(t.error||new Error("Transaction aborted."));});}
 export async function openVesperDb(){if(!globalThis.indexedDB)throw new Error("IndexedDB is unavailable on this device.");const r=indexedDB.open(VESPER_DB_NAME,VESPER_DB_VERSION);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains(STORE))db.createObjectStore(STORE);};return requestAsPromise(r);}
 // Revisions are device-local metadata, not portable story/backup data.
 function revisionOf(value){if(value==null)return 0;if(!Number.isSafeInteger(value)||value<0)throw new Error("Invalid vault storage revision. Nothing was changed.");return value;}
