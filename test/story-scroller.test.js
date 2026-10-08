@@ -14,18 +14,16 @@ test('manual interaction cancels pending layout positioning',()=>{const f=fixtur
 test('new intent cancels old frames',()=>{const f=fixture();f.controller.position();f.controller.position({target:{getBoundingClientRect:()=>({top:36}),offsetHeight:500}});assert.equal(f.frames.size,1);});
 test('deactivation prevents pending positioning',()=>{const f=fixture();f.controller.position();f.controller.cancel();assert.equal(f.frames.size,0);});
 
-import { mountMobileComposer } from '../src/ui/story-scroller.js';
-function composerFixture(mobile=true){
- const classes=new Set(),events={},attributes={};let focused=0,blurred=0;
- const input={value:'Unsent draft',focus(){focused++;},blur(){blurred++;}};
- const win={document:{activeElement:input},matchMedia:()=>({matches:mobile,addEventListener(){}})};
- const composer={classList:{toggle(c,on){if(on)classes.add(c);else classes.delete(c);},contains:c=>classes.has(c)},contains:el=>el===input,addEventListener:(e,f)=>events[e]=f};
- const toggle={setAttribute:(k,v)=>attributes[k]=v,addEventListener:(e,f)=>events['toggle-'+e]=f,focus(){}};
- const api=mountMobileComposer({composer,toggle,input,window:win});
- return {api,input,toggle,attributes,events,classes,focused:()=>focused,blurred:()=>blurred};
+function mobileFixture(){
+ const f=fixture(),events={};f.pane.lastElementChild={offsetHeight:500,getBoundingClientRect:()=>({top:2200-win.scrollY,bottom:2700-win.scrollY})};
+ const win={scrollY:0,innerHeight:700,document:{scrollingElement:{scrollHeight:3200},querySelector:s=>({getBoundingClientRect:()=>s==='.topbar'?{top:0,bottom:59,height:59}:{top:654,bottom:700,height:46}})},matchMedia:()=>({matches:true}),requestAnimationFrame:fn=>{f.frames.set(1,fn);return 1;},cancelAnimationFrame:id=>f.frames.delete(id),setTimeout:()=>1,clearTimeout(){},addEventListener:(name,fn)=>events[name]=fn,scrollTo({top}){this.scrollY=top;}};
+ f.controller=createStoryScroller({scroller:f.pane,button:f.button,window:win});return {...f,win,events};
 }
-test('mobile composer starts collapsed without discarding draft',()=>{const f=composerFixture();assert.equal(f.attributes['aria-expanded'],'false');assert.equal(f.input.value,'Unsent draft');});
-test('Write opens and focuses the mobile editor',()=>{const f=composerFixture();f.events['toggle-click']();assert.equal(f.attributes['aria-expanded'],'true');assert.equal(f.toggle.textContent,'Read Story');assert.equal(f.focused(),1);});
-test('Read Story closes the editor and preserves its draft',()=>{const f=composerFixture();f.events['toggle-click']();f.events['toggle-click']();assert.equal(f.input.value,'Unsent draft');assert.equal(f.attributes['aria-expanded'],'false');assert.equal(f.toggle.textContent,'Write');});
-test('Escape returns to mobile reading without clearing input',()=>{const f=composerFixture();f.events['toggle-click']();f.events.keydown({key:'Escape'});assert.equal(f.attributes['aria-expanded'],'false');assert.equal(f.input.value,'Unsent draft');});
-test('desktop disclosure initialization leaves focus alone',()=>{const f=composerFixture(false);assert.equal(f.blurred(),0);assert.equal(f.focused(),0);assert.equal(f.api.isMobile(),false);});
+test('mobile reopen aligns newest message above fixed navigation',()=>{const f=mobileFixture();f.controller.position();assert.equal(f.win.scrollY,2062);assert.equal(f.pane.scrollTop,0);});
+test('mobile new reply begins below sticky topbar',()=>{const f=mobileFixture();f.controller.position({target:f.pane.lastElementChild});assert.equal(f.win.scrollY,2125);});
+test('mobile manual page scrolling cancels pending positioning',()=>{const f=mobileFixture();f.controller.position();f.events.wheel();f.win.scrollY=100;f.flush();assert.equal(f.win.scrollY,100);});
+test('mobile visible viewport accounts for keyboard shrink',()=>{const f=mobileFixture();f.win.visualViewport={height:420,offsetTop:0,addEventListener(){}};f.controller.position();assert.equal(f.win.scrollY,2296);});
+test('mobile empty conversations do not throw or change the page position',()=>{const f=mobileFixture();f.pane.lastElementChild=null;f.controller.position();assert.equal(f.win.scrollY,0);});
+test('mobile jump control does not overlap the original composer',()=>{const f=mobileFixture();const query=f.win.document.querySelector;f.win.document.querySelector=s=>s==='#composer'?{getBoundingClientRect:()=>({top:350,bottom:650})}:query(s);f.controller.updateButton();assert.equal(f.button.hidden,true);});
+test('mobile reply positioning respects a panned visual viewport',()=>{const f=mobileFixture();f.win.visualViewport={height:420,offsetTop:100,addEventListener(){}};f.controller.position({target:f.pane.lastElementChild});assert.equal(f.win.scrollY,2084);});
+test('mobile short replies have enough document space to align below the topbar',()=>{const f=mobileFixture();f.pane.lastElementChild={offsetHeight:50,getBoundingClientRect:()=>({top:2200-f.win.scrollY,bottom:2250-f.win.scrollY})};f.win.document.scrollingElement.scrollHeight=2600;f.pane.style.setProperty=(_k,value)=>{f.win.document.scrollingElement.scrollHeight=2600+Number.parseFloat(value);};f.win.scrollTo=function({top}){this.scrollY=Math.min(top,this.document.scrollingElement.scrollHeight-this.innerHeight);};f.controller.position({target:f.pane.lastElementChild});assert.equal(f.win.scrollY,2125);});

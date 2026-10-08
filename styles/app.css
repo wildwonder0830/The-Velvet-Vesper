@@ -142,11 +142,9 @@
 .message.user{background:linear-gradient(145deg,#3b301f,#211a12 70%,#302517);border-color:#80663f;color:#f5ead4;box-shadow:inset 0 1px 0 #c4a56926,0 6px 18px #0005}
 .message.user .dialogue-highlight{color:#f5dfab;background:#b4934620;border-color:#9d7d3b55}
 
-/* Mobile reading mode: disclose the existing editor without discarding drafts. */
-.mobile-write{display:none}
+/* Restore the original mobile page flow; composer follows the transcript. */
 @media(max-width:799px),(hover:none) and (pointer:coarse){
-  .composer .mobile-write{display:block;position:sticky;top:0;z-index:1;min-height:44px;width:100%;font-size:16px;touch-action:manipulation}
-  .composer:not(.composer-open) #composerEditor{display:none}
-  .composer.composer-open #composerEditor{margin-top:8px}
-  .composer{padding:6px 10px;max-height:min(360px,calc(var(--story-viewport-height,100dvh) - 200px));overflow-y:auto!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .app-shell.story-open{height:auto;min-height:100dvh;grid-template-rows:auto 1fr auto;overflow-anchor:none}
+  .story-open .messages{padding-bottom:calc(150px + var(--reply-tail,0px))}
+  .story-open .scroll-bottom{position:fixed;bottom:calc(74px + var(--safe))}
 }
