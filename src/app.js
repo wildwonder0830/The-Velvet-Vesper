@@ -1,4 +1,4 @@
-import { createBackupFile, shareBackup, downloadBackupFile, readBackupFile } from "./backup/backup-transfer.js";
+import { createBackupFile, shareBackup, downloadBackupFile, readBackupFile, canShareBackup, isIOSBackupEnvironment } from "./backup/backup-transfer.js";
 import { createStoryPhone } from "./ui/story-phone.js";
 import { appendPhoneMessage, markPhoneThreadRead } from "./phone/phone-state.js";
 import { reconcilePhoneDependencies } from "./phone/phone-context.js";
@@ -198,13 +198,14 @@ function transferMessage(text) { const content=$("backupTransferContent");conten
 function openTransfer(title) { $("backupTransferTitle").textContent=title;$("backupTransferPanel").hidden=false;$("backupTransferClose").onclick=()=>{if(importingBackup)return;backupOperation++;preparedImport=null;rollbackFile=null;$("backupTransferPanel").hidden=true;$("backupTransferContent").replaceChildren();}; }
 function transferButton(content,label,id,action) { const button=document.createElement("button");button.type="button";button.className="secondary";button.textContent=label;button.id=id;button.onclick=action;content.append(button);return button; }
 function fileActions(content,file,done=()=>{}) {
-  if(navigator.canShare?.({files:[file]})) transferButton(content,"Share / Save to Files","shareBackup",async()=>{try{if(await shareBackup(file))done();}catch(error){const p=document.createElement("p");p.textContent=`Share failed: ${error?.message||"The operation was interrupted."}. Use Download JSON.`;content.append(p);}});
+  if(isIOSBackupEnvironment()){const p=document.createElement("p");p.textContent="On iPhone/iPad, use Download JSON, then save the named .json backup in Files. Share / Save to Files is disabled because iOS may save an empty or incorrectly named file.";content.append(p);}
+  if(canShareBackup(file)) transferButton(content,"Share / Save to Files","shareBackup",async()=>{try{if(await shareBackup(file))done();}catch(error){const p=document.createElement("p");p.textContent=`Share failed: ${error?.message||"The operation was interrupted."}. Use Download JSON.`;content.append(p);}});
   transferButton(content,"Download JSON","downloadBackupFile",()=>{downloadBackupFile(file);done();});
 }
 async function downloadBackup(){
   openTransfer("Export Backup");const token=++backupOperation;transferMessage("Preparing and checking backup…");
   try{await new Promise(resolve=>setTimeout(resolve,0));const snapshot=await loadVault(db),file=createBackupFile(snapshot,backupFilename());if(token!==backupOperation)return;
-    const content=transferMessage("Backup ready. On iPhone/iPad, choose Share / Save to Files, then Save to Files in the share sheet. If unavailable, Download JSON opens the browser’s download workflow. Export does not change saved data.");fileActions(content,file);
+    const content=transferMessage("Backup ready. Download JSON saves a named backup file using the browser’s download workflow. On supported non-iOS browsers, Share / Save to Files is also available. Export does not change saved data.");fileActions(content,file);
   }catch(error){if(token===backupOperation)transferMessage(`Backup failed: ${error?.message||"The operation was interrupted."}`);}
 }
 async function handleImportFile(e){

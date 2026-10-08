@@ -7,8 +7,21 @@ export function createBackupFile(vault, name = 'Vesper_Backup.json') {
   return new File([text], name, { type: 'application/json' });
 }
 
+// iPadOS desktop mode reports MacIntel; canShare only checks acceptance,
+// not whether Save to Files preserves the filename and bytes on iOS.
+export function isIOSBackupEnvironment(navigatorObject = navigator) {
+  return /iPad|iPhone|iPod/i.test(navigatorObject.userAgent || '') ||
+    (navigatorObject.platform === 'MacIntel' && navigatorObject.maxTouchPoints > 1);
+}
+
+export function canShareBackup(file, navigatorObject = navigator) {
+  return !isIOSBackupEnvironment(navigatorObject) && file?.size > 0 &&
+    /\.json$/i.test(file.name || '') && file.type === 'application/json' &&
+    Boolean(navigatorObject.share && navigatorObject.canShare?.({ files: [file] }));
+}
+
 export async function shareBackup(file, navigatorObject = navigator) {
-  if (!navigatorObject.canShare?.({ files: [file] }) || !navigatorObject.share)
+  if (!canShareBackup(file, navigatorObject))
     throw new Error('File sharing is unavailable in this browser. Use Download JSON instead.');
   try { await navigatorObject.share({ files: [file], title: 'Vesper backup' }); return true; }
   catch (error) { if (error.name === 'AbortError') return false; throw error; }

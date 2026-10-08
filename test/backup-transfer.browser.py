@@ -17,11 +17,18 @@ async def run():
    original=await page.evaluate(STATE)
    await page.click('#settingsButton');await page.click('#backupButton');await page.locator('#downloadBackupFile').wait_for()
    async with page.expect_download() as d:await page.click('#downloadBackupFile')
-   rollback=pathlib.Path(await (await d.value).path()).read_bytes();assert json.loads(rollback)['format']=='the-velvet-vesper-vault';assert await page.evaluate(STATE)==original
+   rollback=pathlib.Path(await (await d.value).path()).read_bytes();assert (await d.value).suggested_filename.endswith('.json');assert len(rollback)>0;assert json.loads(rollback)['format']=='the-velvet-vesper-vault';assert await page.evaluate(STATE)==original
    await page.click('#backupTransferClose');await page.click('#settingsClose')
    # Inject the Web Share interface solely to verify invocation/cancellation branches.
    await page.evaluate("Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{window.sharedName=data.files[0].name;}})")
-   await page.click('#settingsButton');await page.click('#backupButton');await page.click('#shareBackup');assert await page.evaluate('Boolean(window.sharedName)');await page.click('#backupTransferClose');await page.click('#settingsClose')
+   await page.click('#settingsButton');await page.click('#backupButton');await page.locator('#downloadBackupFile').wait_for()
+   if device=='Desktop':
+    await page.click('#shareBackup');assert await page.evaluate('Boolean(window.sharedName)')
+   else:
+    assert await page.locator('#shareBackup').count()==0
+    assert 'Share / Save to Files is disabled' in await page.locator('#backupTransferContent').inner_text()
+    assert not await page.evaluate('Boolean(window.sharedName)')
+   await page.click('#backupTransferClose');await page.click('#settingsClose')
    for bad in [b'{',b'{}']:
     await page.locator('#importFile').set_input_files({'name':'bad.json','mimeType':'application/json','buffer':bad});await page.wait_for_function("document.querySelector('#backupTransferContent').textContent.startsWith('Import error:')");assert await page.evaluate(STATE)==original;await page.click('#backupTransferClose')
    large=await page.evaluate("""async()=>{const {emptyVault}=await import('./src/schema.js'),{serializePortableBackup}=await import('./src/backup/vesper-backup.js');const v=emptyVault();v.personas=[{id:'p',name:'Synthetic'}];v.characters=[{id:'x',name:'Synthetic'}];for(let i=0;i<8;i++){v.stories.push({id:'s'+i,title:'Synthetic '+i,personaId:'p',characterIds:['x']});v.chats.push({id:'c'+i,storyId:'s'+i});}for(let i=0;i<1757;i++)v.messages.push({id:'m'+i,storyId:'s'+i%8,chatId:'c'+i%8,role:i%2?'assistant':'user',ordinal:i,text:'Synthetic test content. '.repeat(130)});return serializePortableBackup(v);} """)

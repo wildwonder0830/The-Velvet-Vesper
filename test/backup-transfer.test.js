@@ -26,3 +26,22 @@ test('post-commit refresh failure reports that data WAS restored, not unchanged'
  const context=vm.createContext({preparedImport:{},importRevision:4,db:{},vault:null,importingBackup:false,$:id=>controls[id],transferMessage:text=>message=text,setTimeout,commitPreparedImport:async()=>{committed=true;},loadVault:async()=>{throw new Error('Read interrupted');},render:()=>{}});
  vm.runInContext(code,context);await context.confirmImport();assert.equal(committed,true);assert.match(message,/Backup was restored/);assert.doesNotMatch(message,/did not change/);assert.equal(controls.backupTransferClose.disabled,false);
 });
+
+import { canShareBackup, isIOSBackupEnvironment } from '../src/backup/backup-transfer.js';
+for(const environment of [
+ {userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'},
+ {userAgent:'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)'},
+ {userAgent:'Mozilla/5.0 (Macintosh; Intel Mac OS X)',platform:'MacIntel',maxTouchPoints:5}
+])test('iOS handoff is withheld even when canShare claims support: '+environment.userAgent,async()=>{
+ let called=false;const nav={...environment,canShare:()=>true,share:async()=>{called=true;}};
+ const file=createBackupFile(fixture());assert.equal(isIOSBackupEnvironment(nav),true);assert.equal(canShareBackup(file,nav),false);
+ await assert.rejects(shareBackup(file,nav),/Download JSON/);assert.equal(called,false);
+});
+test('generated filename, extension, MIME and nonempty UTF-8 bytes survive the share boundary',async()=>{
+ const v=fixture();v.stories[0].title='Synthetic 🌙';const name='Vesper_Backup_2026-10-08_12-34.json',file=createBackupFile(v,name);
+ const bytes=new Uint8Array(await file.arrayBuffer());assert.ok(file.size>0);assert.equal(file.size,bytes.byteLength);assert.equal(file.name,name);assert.match(file.name,/\.json$/);assert.equal(file.type,'application/json');assert.equal(new TextDecoder().decode(bytes),await file.text());assert.equal(parseVesperBackup(await file.text()).stories[0].title,'Synthetic 🌙');
+ await shareBackup(file,{userAgent:'Desktop',canShare:()=>true,share:async data=>{assert.equal(data.files[0].name,name);assert.equal(data.files[0].size,file.size);assert.equal(data.files[0].type,'application/json');assert.deepEqual(new Uint8Array(await data.files[0].arrayBuffer()),bytes);}});
+});
+for(const [name,type,text] of [['.txt','text/plain',''],['backup.txt','application/json','{}'],['backup.json','text/plain','{}'],['backup.json','application/json','']])test('invalid file metadata cannot enter sharing: '+[name,type,text.length].join('/'),()=>{
+ assert.equal(canShareBackup(new File([text],name,{type}),{canShare:()=>true,share:()=>{}}),false);
+});
