@@ -74,6 +74,7 @@ async function sendPhoneMessage({storyId,threadId,text,action,onSubmitted,isView
   if(sending||phoneBusy)throw new Error("Wait for the current request to finish.");
   const story=vault.stories.find(s=>s.id===storyId),thread=story?.phone?.threads.find(t=>t.id===threadId);
   if(!thread)throw new Error("Phone thread is unavailable.");
+  if(thread.historicalOnly||thread.participantIds.some(id=>!vault.characters.some(c=>c.id===id)))throw new Error("Historical contact archives are read-only; no AI request was made.");
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY))throw new Error("Add your OpenRouter API key in Settings first.");
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   phoneBusy=true;

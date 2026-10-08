@@ -20,6 +20,10 @@ export function buildPortableBackup(vault, now = new Date().toISOString()) {
   const validation = validateVault(vault);
   if (!validation.ok) throw new Error(`Cannot export invalid vault: ${validation.errors.join(" ")}`);
 
+  // Event-aware history must never export an invalid approval proof or audience.
+  if (vault.stories?.some(s => s.phone?.threads?.some(t => t.messages?.some(m => m.recovery?.version === 3))))
+    requireValidBackup(validateVesperBackup(vault),"Vesper");
+
   const clean = stripSecrets(structuredClone(vault));
   clean.appVersion = VESPER_APP_VERSION;
   clean.exportedAt = now;

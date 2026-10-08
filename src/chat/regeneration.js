@@ -21,6 +21,7 @@ export function commitRegeneration(messages, plan, replacement, { keepDescendant
   return [...prefix, { ...replacement, regeneratedFromId: plan.targetMessageId }, ...suffix];
 }
 
+import {reconcilePhoneDependencies} from '../phone/phone-context.js';
 import {validateVesperBackup,requireValidBackup} from '../backup/backup-validation.js';
 import {canonicalMilestones,milestoneSupportsRelationship} from '../milestones/verifier.js';
 import {isMemoryVisible} from '../memory/memory-manager.js';
@@ -107,6 +108,7 @@ export function prepareVaultRegeneration(vault,targetMessageId){
  // collections. Repeat to a fixed point, without touching the caller's vault.
  let size;
  do{size=unavailableCount();const result={};for(const [key,value] of Object.entries(next))result[key]=clean(value,{},key);next=result;}while(unavailableCount()!==size);
+ next=reconcilePhoneDependencies(next,{historicalBase:vault});
  requireValidBackup(validateVesperBackup(next),'regeneration');
  return {vault:next,targetMessageId,storyId:target.storyId,chatId:target.chatId,
   ordinal:Number.isFinite(Number(target.ordinal))?Number(target.ordinal):index,

@@ -10,6 +10,7 @@ export async function runPhoneTurn({vault,storyId,threadId,action,signal,send=se
   const story=vault.stories.find(s=>s.id===storyId);if(!story)throw new Error('Story unavailable.');
   validateStoryPhone(story,vault);
   const thread=story.phone?.threads.find(t=>t.id===threadId);if(!thread)throw new Error('Phone thread unavailable.');
+  if(thread.historicalOnly||thread.participantIds.some(id=>!vault.characters.some(c=>c.id===id)))throw new Error('Historical contact archives are read-only; no AI request was made.');
   const settings=story.settings||{},a=assemblePrompt({vault,storyId,chatId:thread.chatId,preferenceLines:vault.preferenceLines,storySettings:settings});
   const characters=a.characters.filter(c=>thread.participantIds.includes(c.id));
   if (characters.length !== thread.participantIds.length) throw new Error('A thread participant is no longer in this story. Edit membership before continuing.');

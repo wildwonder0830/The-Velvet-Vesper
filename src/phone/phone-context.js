@@ -1,3 +1,4 @@
+import {extendedCandidateIndex} from './phone-history-parser.js';
 import { filterMemoryForModel } from '../memory/memory-manager.js';
 import { canonicalMilestones, milestoneDerivedRecordIsCanonical } from '../milestones/verifier.js';
 import {orderedPhoneMessages,recoveredSourceCurrent} from './phone-state.js';
@@ -21,8 +22,8 @@ function sourcesAvailable(vault,message,checkOwner=true) {
   }
   return true;
 }
-export function phoneMessageVisible(vault, message, respondingCharacterIds) {
-  if (!respondingCharacterIds?.length || !respondingCharacterIds.every(id => message.audienceIds?.includes(id)) || !sourcesAvailable(vault,message)||!recoveredSourceCurrent(message,vault)) return false;
+export function phoneMessageVisible(vault, message, respondingCharacterIds,candidateIndex) {
+  if (!respondingCharacterIds?.length || !respondingCharacterIds.every(id => message.audienceIds?.includes(id)) || !sourcesAvailable(vault,message)||!recoveredSourceCurrent(message,vault,{candidateIndex})) return false;
   if ((message.sourceMilestoneIds || []).some(id => !canonicalMilestones(vault,message.storyId,message.chatId).some(m => m.id === id))) return false;
   const filtered = filterMemoryForModel([message],vault.memoryEntries,message.storyId);
   return filtered.length === 1 && filtered[0].text === message.text;
@@ -32,18 +33,37 @@ export function buildPhoneContext(vault,{storyId,chatId,respondingCharacterIds,t
   if (!story || !vault.chats.some(c=>c.id===chatId&&c.storyId===storyId)) return [];
   const cast=new Set([story.primaryCharacterId,...(story.characterIds||[])].filter(Boolean));
   if (!respondingCharacterIds?.length || respondingCharacterIds.some(id=>!cast.has(id))) return [];
+  const candidateIndex=story.phone?.threads.some(t=>t.messages.some(m=>m.recovery?.version===2))?extendedCandidateIndex(vault,storyId):null;
   return (story.phone?.threads||[]).filter(t=>t.storyId===storyId&&t.chatId===chatId&&(!threadId||t.id===threadId))
-    .flatMap(t=>orderedPhoneMessages(t).filter(m=>m.storyId===storyId&&m.chatId===chatId&&phoneMessageVisible(vault,m,respondingCharacterIds))
+    .flatMap(t=>orderedPhoneMessages(t).filter(m=>m.storyId===storyId&&m.chatId===chatId&&phoneMessageVisible(vault,m,respondingCharacterIds,candidateIndex))
       .map(m=>({threadId:t.id,threadKind:t.kind,senderId:m.senderId,text:m.text,createdAt:m.createdAt,
         ...(m.recovery?{chronology:'Recovered in transcript order; relation to live phone messages unverified',sourceOrder:[m.recovery.transcriptOrder,m.recovery.start]}:{}),
         audienceIds:[...m.audienceIds],sourceMessageIds:m.sourceMessageIds||[],sourceMemoryIds:m.sourceMemoryIds||[],sourceMilestoneIds:m.sourceMilestoneIds||[]})))
     .sort((a,b)=>a.sourceOrder&&b.sourceOrder?a.sourceOrder[0]-b.sourceOrder[0]||a.sourceOrder[1]-b.sourceOrder[1]:a.sourceOrder?-1:b.sourceOrder?1:a.createdAt.localeCompare(b.createdAt)).slice(-maxMessages);
 }
-export function reconcilePhoneDependencies(vault) {
+export function reconcilePhoneDependencies(vault,{historicalBase=vault}={}) {
   const next=structuredClone(vault);
-  for (const s of next.stories) for (const t of s.phone?.threads||[]) {
+  // Keep an already-reviewed identity only while its actual surviving source
+  // still documents that exact name. This does not infer replacement evidence.
+  for(const s of next.stories){const p=s.phone,base=historicalBase.stories.find(x=>x.id===s.id)?.phone;if(!p||!base)continue;
+    for(const [field,label] of [['historicalContacts','canonicalName'],['historicalAliases','label']]){
+      if(base[field]===undefined)continue;
+      p[field]=base[field].map(record=>({...structuredClone(record),sourceMessageIds:record.sourceMessageIds.filter(id=>next.messages.some(m=>m.id===id&&m.storyId===s.id&&m.text.toLocaleLowerCase().includes(record[label].toLocaleLowerCase())))})).filter(record=>record.sourceMessageIds.length);
+    }
+  }
+  for (const s of next.stories) {const candidateIndex=s.phone?.threads.some(t=>t.messages.some(m=>m.recovery?.version===2))?extendedCandidateIndex(next,s.id,{includeExcluded:true}):null;for (const t of s.phone?.threads||[]) {
     // Historical excluded sources remain stored; missing/removed branch sources cannot leave dangling references.
-    t.messages=t.messages.filter(m=>sourcesAvailable(next,m)&&recoveredSourceCurrent(m,next,{includeExcluded:true}));
+    t.messages=t.messages.filter(m=>sourcesAvailable(next,m)&&recoveredSourceCurrent(m,next,{includeExcluded:true,candidateIndex}));
+  }
+  }
+  for(const s of next.stories){const p=s.phone;if(!p)continue;
+    const oldContactIds=new Set((historicalBase.stories.find(x=>x.id===s.id)?.phone?.historicalContacts||[]).map(c=>c.id));
+    const evidence=ids=>ids.filter(id=>next.messages.some(m=>m.id===id&&m.storyId===s.id));
+    if(p.historicalContacts)p.historicalContacts=p.historicalContacts.map(c=>({...c,sourceMessageIds:evidence(c.sourceMessageIds)})).filter(c=>c.sourceMessageIds.length);
+    const known=new Set([s.personaId,...next.characters.map(c=>c.id),...(p.historicalContacts||[]).map(c=>c.id)]);
+    if(p.historicalAliases)p.historicalAliases=p.historicalAliases.map(a=>({...a,sourceMessageIds:evidence(a.sourceMessageIds)})).filter(a=>known.has(a.id)&&a.sourceMessageIds.length);
+    p.threads=p.threads.filter(t=>!(t.historicalOnly&&!t.messages.length&&t.participantIds.some(id=>!known.has(id))));
+    for(const id of oldContactIds)if(!known.has(id))delete p.contactDisplayNames[id];
   }
   return next;
 }
