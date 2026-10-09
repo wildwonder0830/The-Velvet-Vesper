@@ -1,3 +1,4 @@
+import { roleplayMetaIssues } from "./chat/roleplay-integrity.js";
 import {assertDirectorStoryOpen,parseDirectorCommand,directorPreferences,updateDirectorPreferences,directorInstruction} from "./chat/director.js";
 import {mountChatMenu,bindComposerViewport} from "./ui/chat-menu.js";
 import {mountHistoricalMilestones} from './ui/historical-milestones.js';
@@ -40,6 +41,7 @@ const modelIndependentSignature=()=>JSON.stringify(["temperatureSetting","maxTok
 const settingsFormSignature=()=>JSON.stringify(["modelName","temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
 let storyPhone,phoneBusy=false,personasUi,milestoneBaseline=new Map();
 async function saveAppVault(database,candidate,options){
+ if(!importingBackup&&candidate.messages.some(m=>m.role==="assistant"&&m.validation&&!milestoneBaseline.has(m.id)&&roleplayMetaIssues(m.text).length))throw new Error("Meta commentary cannot be saved as a generated story reply.");
  const ids=candidate.messages.filter(m=>milestoneBaseline.get(m.id)!==m.text).map(m=>m.id);
  const next=importingBackup?candidate:scanMilestoneEvents(candidate,ids);
  const saved=await saveVaultAtomic(database,next,{expectedRevision:candidate.storageRevision,...options});
@@ -150,7 +152,7 @@ function ensurePreferenceLines(){
 }
 function cncPreferenceLine(){return (vault.preferenceLines||[]).find(line=>(line.tags||[]).includes("cnc"))||null;}
 function sexualBoundaryIssues(result){return (result?.validation?.issues||[]).filter(issue=>issue.type==="sexual-red-line");}
-function canReviewBlockedReply(result){return Boolean(result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length);}
+function canReviewBlockedReply(result){return Boolean(!roleplayMetaIssues(result?.blockedText||result?.text).length&&result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length);}
 function closeBlockedReplyReview(){pendingBlockedReview=null;const panel=$("blockedReplyPanel");if(panel)panel.hidden=true;}
 function offerBlockedReplyReview({result,onAccept,onReject}){
   if(!canReviewBlockedReply(result))return false;

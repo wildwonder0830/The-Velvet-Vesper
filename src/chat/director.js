@@ -1,3 +1,4 @@
+import { roleplayMetaIssues } from "./roleplay-integrity.js";
 const intensities=['subtle','dramatic','chaotic'],pacings=['cinematic','immediate'];
 export function directorPreferences(story){const saved=story?.settings?.director;return {intensity:intensities.includes(saved?.intensity)?saved.intensity:'subtle',pacing:pacings.includes(saved?.pacing)?saved.pacing:'cinematic'};}
 export function updateDirectorPreferences(vault,storyId,preferences){
@@ -42,7 +43,7 @@ export const directorContinuationRule=`ACTIVE DIRECTOR CONTINUATION: Execute the
 Skip sleep advances to the next meaningful waking scene even when the characters are already asleep; ordinarily begin the next morning. Narrate the environment and NPC actions/perspective. If an NPC wakes first, narrate that character without deciding whether the protagonist wakes or responds. Never narrate the protagonist's waking behavior, actions, speech, thoughts, feelings or decisions; My Turn is a separate explicitly authorized draft mode.
 Write immersive in-world narrative only. Do not discuss narrative structure, announce a conclusion, refuse because the scene is peaceful, or say continuation is unnecessary. Preserve established relationship status, individual personalities, continuity and boundaries. Do not invent major offscreen events, intimacy, pregnancy, relationship changes or milestone completions during a skip.`;
 export function validateOocNarrativeOutput(text,{director=false}={}){
- const meta=/\b(?:story|narrative|roleplay|scene)\s+(?:(?:(?:has|had)\s+)?(?:already\s+)?reached\s+(?:(?:a|its|the)\s+)?(?:(?:complete|natural|satisfying)\s+)?(?:conclusion|ending)|(?:is|was)\s+(?:now\s+)?(?:complete|finished|over)|(?:has|had)\s+(?:ended|concluded)|needs?\s+no\s+continuation)\b|\bno\s+(?:further\s+)?continuation\s+(?:is\s+)?(?:necessary|needed|required)\b|\b(?:there is )?no need to continue[.!\s]*$|\bas an ai\b[^\n.!?]*\b(?:cannot|can't|won't|will not) continue\b/i;
+ const issues=roleplayMetaIssues(text);
  const structure=/(?:^|\n)\s*(?:from a narrative (?:perspective|standpoint)|narratively(?: speaking)?|the narrative (?:arc|structure)|this (?:scene|story) (?:symbolizes|represents|demonstrates))\b/i;
- return (meta.test(String(text))||/\b(?:this is )?the end of the (?:story|narrative|roleplay)\b/i.test(String(text))||director&&structure.test(String(text)))?[{type:'director-meta',severity:'block',message:'OOC returned story-ending commentary instead of immersive continuation. No reply was added; retry only if you explicitly choose to.'}]:[];
+ return (issues.length||director&&structure.test(String(text)))?[{type:'director-meta',severity:'block',message:'OOC returned story-ending commentary instead of immersive continuation. No reply was added; retry only if you explicitly choose to.'}]:[];
 }

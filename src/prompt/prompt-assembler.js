@@ -1,3 +1,4 @@
+import { projectRoleplayContext } from "../chat/roleplay-integrity.js";
 import { identityOwnership } from "./identity-ownership.js";
 import { personaModelVault, protagonistDirective, messagePersonaId } from "../personas/persona-store.js";
 import { authoritativeReplyContext, projectEditedContext } from "../chat/message-edit.js";
@@ -14,6 +15,7 @@ import { milestoneSupportsRelationship } from "../milestones/verifier.js";
 import { normalizeIntimacyStyle, compileIntimacyStyle } from "../settings/intimacy-style.js";
 
 export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], storySettings = {}, oocInstruction = "", maxRecentMessages = 40 }) {
+  vault=projectRoleplayContext(vault);
   const edits=authoritativeReplyContext(vault,storyId,chatId);
   const phoneVault=projectEditedContext(vault);
   vault=personaModelVault(phoneVault,storyId);

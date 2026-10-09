@@ -1,3 +1,4 @@
+import { roleplayMetaIssues } from "../chat/roleplay-integrity.js";
 import { humanBody } from "../prompt/identity-ownership.js";
 import { findHardRuleViolations } from "../rules/hard-rules.js";
 import { findSexualRedLineViolations } from "../rules/sexual-red-lines.js";
@@ -18,7 +19,7 @@ const PRIVATE_AUTHORSHIP_CONTEXT = /\b(?:notes?|journal|diary|entries?|fantas(?:
 const INVENTED_PERSONA_PRIVATE_VOICE = /(?:^|\n)\s*(?:[*_>\-\s]*\d+[.)]?\s*)?(?:[*_]?\s*)?(?:I\s+(?:want|need|wish|imagine|love|like)|Want\s+(?:him|her|them|to|the)|Need\s+(?:him|her|them|to|the)|I(?:'|’)m\s+(?:his|hers|theirs)|Make\s+me\b)/im;
 
 export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null, characters = [] }) {
-  const issues = [];
+  const issues = roleplayMetaIssues(text);
   if (!String(text || "").trim()) {
     issues.push({
       type: "empty-output",
