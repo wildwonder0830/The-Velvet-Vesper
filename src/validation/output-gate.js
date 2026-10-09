@@ -1,3 +1,4 @@
+import { humanBody } from "../prompt/identity-ownership.js";
 import { findHardRuleViolations } from "../rules/hard-rules.js";
 import { findSexualRedLineViolations } from "../rules/sexual-red-lines.js";
 
@@ -16,7 +17,7 @@ const PASSIVE_HANDOFF_PATTERNS = [
 const PRIVATE_AUTHORSHIP_CONTEXT = /\b(?:notes?|journal|diary|entries?|fantas(?:y|ies)|wish\s*list|private\s*list|drafts?|saved\s*(?:messages?|entries?)|app\s*(?:notes?|entries?))\b/i;
 const INVENTED_PERSONA_PRIVATE_VOICE = /(?:^|\n)\s*(?:[*_>\-\s]*\d+[.)]?\s*)?(?:[*_]?\s*)?(?:I\s+(?:want|need|wish|imagine|love|like)|Want\s+(?:him|her|them|to|the)|Need\s+(?:him|her|them|to|the)|I(?:'|’)m\s+(?:his|hers|theirs)|Make\s+me\b)/im;
 
-export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null }) {
+export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null, characters = [] }) {
   const issues = [];
   if (!String(text || "").trim()) {
     issues.push({
@@ -63,11 +64,17 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
     issues.push({ type: "continuity-reset", severity: "repair", message: "Output conflicts with established mate-bond state." });
   }
 
-  if(String(persona?.profile?.species||'').toLowerCase()==='human'){
+  if(humanBody(persona)){
     const escaped=(persona.name||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     const forbidden=new RegExp(`\\b${escaped}(?:['’]s|\\s+(?:has|grew|sprouted))\\s+(?:[\\w-]+\\s+){0,2}(?:tail|feline ears|fur|claws)\\b`,'i');
     if(escaped&&forbidden.test(String(text)))issues.push({type:'persona-identity',severity:'repair',message:'The assigned protagonist is human; NPC feline anatomy must not be transferred to this persona.'});
   }
+  const gender=record=>String(record?.profile?.gender||record?.profile?.sex||'').toLowerCase();
+  const protagonistPronoun=gender(persona)==='female'?'her':gender(persona)==='male'?'his':null;
+  const exclusivePronoun=protagonistPronoun&&characters.every(c=>['female','male'].includes(gender(c))&&gender(c)!==gender(persona));
+  if(humanBody(persona)&&personaDraft&&exclusivePronoun&&new RegExp(`\\b${protagonistPronoun}\\s+(?:[\\w-]+\\s+){0,2}(?:tail|feline ears|animal ears|fur|claws)\\b`,'i').test(String(text)))issues.push({type:'persona-identity',severity:'block',message:'This unambiguous pronoun identifies the human protagonist, not the NPC owning that anatomy.'});
+  if(humanBody(persona)&&personaDraft&&/\bmy\s+(?:[\w-]+\s+){0,2}(?:tail|feline ears|animal ears|fur|claws)\b/i.test(String(text)))issues.push({type:'persona-identity',severity:'block',message:'The human protagonist cannot own NPC anatomy. Keep each physical trait with its established actor.'});
+  if(/\b(?:her|his|my|their)\s+(?:tail|ears|fur|claws)\s*[—–,-]\s*(?:no|wait|rather|i mean)\s*[,—–-]?\s*(?:her|his|my|their)\s+(?:tail|ears|fur|claws)\b/i.test(String(text)))issues.push({type:'prose-self-correction',severity:'block',message:'Do not expose inline actor/anatomy corrections in finished prose. Attribute the body part to its correct owner before writing the draft.'});
   return {
     ok: !issues.some(issue => issue.severity === "block"),
     needsRepair: issues.some(issue => issue.severity === "repair"),

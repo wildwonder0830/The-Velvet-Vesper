@@ -1,0 +1,5 @@
+export const humanBody=persona=>['human','entirely human','fully human','ordinary human'].includes(String(persona?.profile?.species||'').trim().toLowerCase());
+export function identityOwnership(persona,characters=[]){
+ const actors=[...(persona?[{record:persona,role:'player'}]:[]),...characters.map(record=>({record,role:'npc'}))].map(({record,role})=>({id:record.id,name:record.name,role,source:role==='player'?'assigned-persona-profile':'story-character-profile',species:record.profile?.species||null,anatomy:record.profile?.anatomy||record.profile?.appearance||null,abilities:record.profile?.abilities||null,...(humanBody(record)?{excludedAnatomy:['tail','animal ears','fur','claws','shifting']}:{} )}));
+ return {rule:'Each fact belongs only to its actor ID. NPC anatomy cannot fill missing protagonist fields. Assigned persona facts override older conflicting narration or summaries. Unknown anatomy stays unknown; do not infer it from another actor. Attribute physical actions explicitly when pronouns are ambiguous. Output finished prose, never an inline correction of actor identity or body ownership.',actors};
+}

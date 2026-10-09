@@ -1,3 +1,4 @@
+import {evidenceIdentifies} from './participants.js';
 import { storyPersonaIds } from "../personas/persona-store.js";
 import { makeId } from "../schema.js";
 
@@ -53,6 +54,10 @@ export function rejectMilestone(candidate, reason = "", now = new Date().toISOSt
 const CANONICAL_STATUSES = new Set(["confirmed", "verified", "completed", "confirmed-imported"]);
 const NON_EVENT = /\b(?:not|never|almost|nearly|didn['’]?t|did not|wanted to|thought about|imagined|dreamed|would|could|might|may|will|suggest(?:ed|ion)?|predict(?:s|ed)?|hypothetical|provisional)\b/i;
 const COMPLETED_EVENT = {
+  exclusive: /\b(?:became|are|agreed to be)\b[\s\S]*\bexclusive\b/i,
+  engaged: /\b(?:became|are|were|got)\s+engaged\b/i,
+  married: /\b(?:became|are|were|got)\s+married\b/i,
+  plot_development: /\b(?:completed (?:the |their )?(?:quest|mission)|solved (?:the |their )?mystery)\b/i,
   first_kiss: /\b(?:kissed|(?:shared|had|completed|exchanged)[\s\S]*kiss|first kiss[\s\S]*(?:happened|occurred))\b/i,
   first_date: /\b(?:went|had|completed)\b[\s\S]*\bdate\b/i,
   relationship_official: /\b(?:are|became|we're|we are)\b[\s\S]*\b(?:together|official|partners|boyfriend|girlfriend)\b/i,
@@ -84,7 +89,7 @@ export function validateCanonicalMilestone(milestone, vault, { storyId, chatId }
   if (milestone.contradictsMilestoneId || milestone.supersedesMilestoneId || milestone.value === false) fail("Contradictory milestones require an explicit retcon, not an automatic upgrade.");
   const participants = ids(milestone);
   const allowed = new Set([...storyPersonaIds(story), story?.primaryCharacterId, ...(story?.characterIds || [])].filter(Boolean));
-  if (!Array.isArray(participants) || participants.length < (COMPLETED_EVENT[milestone.type] ? 2 : 1) ||
+  if (!Array.isArray(participants) || participants.length < (COMPLETED_EVENT[milestone.type] && milestone.type!=="plot_development" ? 2 : 1) ||
     new Set(participants).size !== participants.length || participants.some(id => !allowed.has(id) ||
       ![...(vault.personas || []), ...(vault.characters || [])].some(record => record.id === id))) fail("Milestone participants must be explicit identities owned by this story.");
   const evidence = typeof milestone.evidence === "string" ? milestone.evidence.trim() : "";
@@ -98,10 +103,8 @@ export function validateCanonicalMilestone(milestone, vault, { storyId, chatId }
     if (!userVerified && source?.role !== "user") fail("Model output requires explicit user verification before becoming canon.");
     if (source?.participantIds && (!Array.isArray(source.participantIds) || !Array.isArray(participants) ||
       participants.some(id => !source.participantIds.includes(id)))) fail("Source evidence belongs to different participants.");
-    if (!userVerified && !source?.participantIds && Array.isArray(participants) && participants.some(id => {
-      const record = [...(vault.personas || []), ...(vault.characters || [])].find(row => row.id === id);
-      return !record?.name || ![record.name,...(record.versions||[]).map(v=>v.name),...(record.historicalNames||[])].some(name=>typeof name==='string'&&evidence.toLowerCase().includes(name.toLowerCase()));
-    })) fail("Source evidence does not identify the milestone participants.");
+    if (!userVerified && !source?.participantIds && Array.isArray(participants) && participants.some(id => !source || !evidenceIdentifies(vault,source,id,evidence))) fail("Source evidence does not identify the milestone participants.");
+    if (source && (['forgotten','retired','deleted','excluded'].some(k=>source.status===k||source[k]||source[k+'At']) || source.editAuthority && !source.text.includes(evidence))) fail("Source evidence was excluded or superseded by an authoritative correction.");
   } else if (!userVerified) fail("A source message or explicit user-verified historical evidence is required.");
   if (!userVerified && (milestone.verification?.requiresContextVerification ||
     ["scanner", "model", "summary", "repair", "inferred"].includes(milestone.source))) fail("Detection or model inference is not canonical verification.");

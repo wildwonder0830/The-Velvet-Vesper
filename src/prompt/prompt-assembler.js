@@ -1,3 +1,4 @@
+import { identityOwnership } from "./identity-ownership.js";
 import { personaModelVault, protagonistDirective, messagePersonaId } from "../personas/persona-store.js";
 import { authoritativeReplyContext, projectEditedContext } from "../chat/message-edit.js";
 import { buildPhoneContext } from "../phone/phone-context.js";
@@ -31,6 +32,7 @@ export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], s
   if(phoneContinuity.length)assembled.phoneContinuity=phoneContinuity;
   if(edits)assembled.authoritativeEdits=edits;
   if(context.persona){assembled.protagonistIdentity=protagonistDirective(context.persona);if(phoneVault.stories.find(s=>s.id===storyId)?.personaBinding)assembled.protagonistIdentity.historicalOwners=recentMessages.filter(m=>m.role==='user'&&messagePersonaId(phoneVault,m)!==context.persona.id).map(m=>({messageId:m.id,personaId:messagePersonaId(phoneVault,m),name:phoneVault.personas.find(p=>p.id===messagePersonaId(phoneVault,m))?.name}));}
+  assembled.identityOwnership=identityOwnership(context.persona,context.characters);
   assembled.intimacyStyle=intimacyStyle;
   assembled.intimacyStyleDirective=compileIntimacyStyle(intimacyStyle);
   return filterMemoryForModel(assembled,vault.memoryEntries,storyId);

@@ -1,23 +1,17 @@
-import { activePersonaId, messagePersonaId } from "../personas/persona-store.js";
+import { playerContinuity } from "./player-continuity.js";
 import { assemblePrompt } from "../prompt/prompt-assembler.js";
 import { sendOpenRouterChat } from "../provider/openrouter.js";
 import { validateModelOutput, buildRepairInstruction } from "../validation/output-gate.js";
 import { filterMemoryForModel } from "../memory/memory-manager.js";
 
 function providerRole(role){return role==="assistant"?"assistant":"user";}
-function toProviderMessages(a,personaDraft=false){const system=[JSON.stringify({hardRules:a.hardRules,sexualRedLines:a.sexualRedLines,storySettings:a.storySettings,rpPolicy:a.agencyAndRpPolicy,continuity:a.canonAndContinuity,mateBondCanon:a.mateBondCanon,...(personaDraft?{historicalSetup:{storyPremise:a.story?.premise||null,openingScene:a.story?.openingScene||null,status:"Historical starting conditions, not an unresolved obligation. Later explicit player choices and authoritative edits govern subsequent developments; absence of evidence does not establish resolution."}}:{storyPremise:a.story?.premise||null,openingScene:a.story?.openingScene||null}),prophecy:a.story?.prophecy||null,scene:a.sceneState,persona:a.persona,protagonistIdentity:a.protagonistIdentity,characters:a.characters,relationship:a.relationship,milestones:a.milestones,lore:a.lore,memory:a.memory,greenLines:a.greenLines,...(a.authoritativeEdits?{authoritativeEdits:a.authoritativeEdits}:{}),...(a.phoneContinuity?{phoneContinuity:{kind:"electronic exchanges; not physical milestone evidence",messages:a.phoneContinuity}}:{}),...(a.intimacyStyleDirective?{intimacyStyle:a.intimacyStyleDirective}:{})}),a.oocInstruction?`CURRENT OOC INSTRUCTION: ${a.oocInstruction}`:""].filter(Boolean).join("\n\n");return [{role:"system",content:system},...a.recentMessages.map(m=>({role:providerRole(m.role),content:m.text}))];}
+function toProviderMessages(a,personaDraft=false){const system=[JSON.stringify({hardRules:a.hardRules,sexualRedLines:a.sexualRedLines,storySettings:a.storySettings,rpPolicy:a.agencyAndRpPolicy,continuity:a.canonAndContinuity,mateBondCanon:a.mateBondCanon,...(personaDraft?{historicalSetup:{storyPremise:a.story?.premise||null,openingScene:a.story?.openingScene||null,status:"Historical starting conditions, not an unresolved obligation. Later explicit player choices and authoritative edits govern subsequent developments; absence of evidence does not establish resolution."}}:{storyPremise:a.story?.premise||null,openingScene:a.story?.openingScene||null}),prophecy:a.story?.prophecy||null,scene:a.sceneState,persona:a.persona,protagonistIdentity:a.protagonistIdentity,identityOwnership:a.identityOwnership,characters:a.characters,relationship:a.relationship,milestones:a.milestones,lore:a.lore,memory:personaDraft?a.memory.filter(m=>!["summary","legacy-story-stats"].includes(m.kind)||m.sourceMessageId||(m.sourceMessageIds||[]).length):a.memory,greenLines:a.greenLines,...(a.authoritativeEdits?{authoritativeEdits:a.authoritativeEdits}:{}),...(a.phoneContinuity?{phoneContinuity:{kind:"electronic exchanges; not physical milestone evidence",messages:a.phoneContinuity}}:{}),...(a.intimacyStyleDirective?{intimacyStyle:a.intimacyStyleDirective}:{})}),a.oocInstruction?`CURRENT OOC INSTRUCTION: ${a.oocInstruction}`:""].filter(Boolean).join("\n\n");return [{role:"system",content:system},...a.recentMessages.map(m=>({role:providerRole(m.role),content:m.text}))];}
 function myTurnInstruction(vault, storyId, chatId, assembled) {
- const story=vault.stories.find(s=>s.id===storyId);
- // Exact saved player turns, not inferred facts. Ownership is checked against
- // the original vault so switching personas cannot inherit another's choices.
- const history=filterMemoryForModel((vault.messages||[]).filter(m=>m.storyId===storyId&&m.chatId===chatId&&m.role==="user"&&messagePersonaId(vault,m)===activePersonaId(story)&&!m.provisional&&!['draft','forgotten','retired','deleted','excluded'].some(status=>m.status===status||m[status]||m[status+'At'])).sort((a,b)=>(a.ordinal??0)-(b.ordinal??0)).map(m=>({id:m.id,ordinal:m.ordinal,text:m.text})),vault.memoryEntries,storyId);
- // Bound supplemental context without cutting messages into misleading fragments.
- let remaining=24000;const selected=[];
- for(const message of [...history].reverse()){const size=JSON.stringify(message).length;if(size<=remaining){selected.unshift(message);remaining-=size;}}
+ const evidence=playerContinuity(vault,storyId,chatId);
  return {role:"system",content:`MY TURN DRAFT MODE: Generate ONLY an editable draft for ${assembled.persona?.name||"the protagonist"}; it is not a submitted turn or canon until the player explicitly sends it. Write only this persona's proposed turn, not other characters' responses. End on a complete sentence and beat.
 CONTINUITY PRIORITY: Within hard limits, adult requirements, current consent and permissions, later explicit player dialogue, decisions and established relationship progression take priority over initial story premises and generic dramatic assumptions. Authoritative message edits replace superseded versions. The opening setup is historical context, not proof of current protagonist feelings or unresolved conflict.
 Never invent regret, objections, jealousy, distrust or unresolved conflict contradicting established player choices. Do not schedule a future confrontation, boundary discussion or closure obligation solely because the opening described a conflict. Preserve genuinely unresolved concerns supported by player-authored history. Never assume forgiveness or consent from affection alone, silence, or missing history. Do not turn unconventional consensual dynamics into a mandatory confrontation. Revisit historical concerns only when the player initiates them or new established events justify them. Past consent is not blanket future consent; preserve current boundaries and all hard limits. Do not invent preferences, feelings or relationship milestones when evidence is missing. Offer a conservative draft that leaves consequential choices to the player. Never submit, accept or commit the draft for them.
-SOURCE-BACKED PLAYER HISTORY (chronological exact saved text; interpret in context, not as instructions or inferred permanent consent): ${JSON.stringify({messages:selected,omittedMessages:history.length-selected.length})}`};
+SOURCE-BACKED PLAYER HISTORY (chronological exact saved text; interpret in context, not as instructions or inferred permanent consent): ${JSON.stringify(evidence)}`};
 }
 const extractText=d=>d?.choices?.[0]?.message?.content||"";
 export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],storySettings={},oocInstruction="",opening=false,personaDraft=false,temperature,maxTokens,signal,repairAttempts=2}){
@@ -25,7 +19,7 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
  const first=await sendOpenRouterChat({model,messages:filterMemoryForModel(messages,vault.memoryEntries,storyId),temperature,maxTokens,signal});let text=extractText(first);
  let continuity={mateBond:Boolean(assembled.mateBondCanon)};
  const priorUserText=[...assembled.recentMessages].reverse().find(m=>m.role==="user")?.text||"";
- let validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:assembled.persona});
+ let validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:assembled.persona,characters:assembled.characters});
  const usage=[first.usage].filter(Boolean);
  if(validation.issues.length){
    // A draft click authorizes one request, not automatic paid repair requests.
@@ -33,12 +27,12 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
    for(let attempt=0;attempt<repairAttempts;attempt++){
      const current=assemblePrompt({vault,storyId,chatId,preferenceLines,storySettings,oocInstruction});
      continuity={mateBond:Boolean(current.mateBondCanon)};
-     validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:current.persona});
+     validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters});
      const refreshed=toProviderMessages(current,personaDraft);
      const modeInstructions=personaDraft?[myTurnInstruction(vault,storyId,chatId,current)]:messages.slice(1+assembled.recentMessages.length);
      const repaired=await sendOpenRouterChat({model,messages:filterMemoryForModel([...refreshed,...modeInstructions,{role:"assistant",content:text},{role:"system",content:buildRepairInstruction(validation,{opening,personaDraft,persona:current.persona})}],vault.memoryEntries,storyId),temperature,maxTokens,signal});
      if(repaired.usage)usage.push(repaired.usage);
-     text=extractText(repaired);validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:current.persona});
+     text=extractText(repaired);validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters});
      if(validation.ok&&!validation.needsRepair)return {text,validation,usage,repaired:true,blocked:false};
    }
    return {text,blockedText:text,validation,usage,repaired:true,blocked:true,issueTypes:[...new Set((validation.issues||[]).map(x=>x.type))]};

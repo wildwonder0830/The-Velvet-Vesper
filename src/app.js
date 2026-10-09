@@ -1,3 +1,5 @@
+import {mountHistoricalMilestones} from './ui/historical-milestones.js';
+import {validateCanonicalMilestone} from './milestones/verifier.js';
 import {activePersonaId,storyPersonaIds} from './personas/persona-store.js';
 import {mountPersonas} from './ui/personas.js';
 import {scanMilestoneEvents,confirmMilestoneEvent,milestonePresentation} from './milestones/events.js';
@@ -34,12 +36,12 @@ let settingsFormSnapshot="";
 let settingsModelSnapshot="",settingsModelFormSnapshot="";
 const modelIndependentSignature=()=>JSON.stringify(["temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
 const settingsFormSignature=()=>JSON.stringify(["modelName","temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
-let storyPhone,phoneBusy=false,personasUi,milestoneBaseline=new Set();
+let storyPhone,phoneBusy=false,personasUi,milestoneBaseline=new Map();
 async function saveAppVault(database,candidate,options){
- const ids=candidate.messages.filter(m=>!milestoneBaseline.has(m.id)).map(m=>m.id);
+ const ids=candidate.messages.filter(m=>milestoneBaseline.get(m.id)!==m.text).map(m=>m.id);
  const next=importingBackup?candidate:scanMilestoneEvents(candidate,ids);
  const saved=await saveVaultAtomic(database,next,{expectedRevision:candidate.storageRevision,...options});
- Object.assign(candidate,saved);Object.defineProperty(candidate,"storageRevision",{value:saved.storageRevision,writable:true,configurable:true,enumerable:false});milestoneBaseline=new Set(saved.messages.map(m=>m.id));return saved;
+ Object.assign(candidate,saved);Object.defineProperty(candidate,"storageRevision",{value:saved.storageRevision,writable:true,configurable:true,enumerable:false});milestoneBaseline=new Map(saved.messages.map(m=>[m.id,m.text]));return saved;
 }
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, pendingBlockedReview = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
@@ -173,7 +175,7 @@ function vaultHasUserData(v){
   return Boolean((v?.stories||[]).length||(v?.chats||[]).length||(v?.messages||[]).length||(v?.usageEntries||[]).length||(v?.personas||[]).length||(v?.characters||[]).length);
 }
 async function boot() {
-  db = await openVesperDb(); vault = await loadVault(db);milestoneBaseline=new Set(vault.messages.map(m=>m.id));
+  db = await openVesperDb(); vault = await loadVault(db);milestoneBaseline=new Map(vault.messages.map(m=>[m.id,m.text]));
   const hadUserData=vaultHasUserData(vault);
   const changed=ensurePreferenceLines()||applyVenomousAssistantRole();
   if(changed&&hadUserData)await saveAppVault(db,vault);
@@ -181,7 +183,7 @@ async function boot() {
   milestoneNotifications.baseline(vault);
   subscribeVaultSaves(event=>{
     if(event.dbName!==db.name)return;
-    if(event.kind==="replace" || importingBackup){milestoneBaseline=new Set(event.vault.messages.map(m=>m.id));milestoneNotifications.baseline(event.vault);}
+    if(event.kind==="replace" || importingBackup){milestoneBaseline=new Map(event.vault.messages.map(m=>[m.id,m.text]));milestoneNotifications.baseline(event.vault);}
     else milestoneNotifications.observe(event.vault);
   });
   storyPhone=createStoryPhone({getSnapshot:()=>({vault,revision:vault.storageRevision,storyId:activeStoryId,chatId:activeChatId,storyVisible:!$("chatView").hidden}),commitCandidate:commitPhoneCandidate,sendPhoneMessage,cancelStoryScroll:()=>storyScroller?.cancel(),isBusy:()=>sending||phoneBusy,onError:message=>showStatus("Phone: "+message,"error")});
@@ -647,8 +649,9 @@ function showDataView(kind){
   $("dataTitle").textContent=isMemory?"Memory":"Milestones";
   const rows=(isMemory?vault.memoryEntries:vault.milestones).filter(x=>!storyId||!x.storyId||x.storyId===storyId);
   const list=$("dataList");list.replaceChildren();
+  if(!isMemory&&storyId)mountHistoricalMilestones(list,{getSnapshot:()=>({vault,storyId}),isBusy:()=>sending||phoneBusy||importingBackup,commit:async(next,expectedRevision)=>{await saveAppVault(db,next,{expectedRevision});vault=next;},onDone:count=>{showDataView("milestones");const notice=document.createElement("p");notice.setAttribute("role","status");notice.textContent=`${count} historical milestones recorded. Story messages were preserved.`;$("dataList").prepend(notice);},onError:message=>showStatus(message,"error")});
   if(!rows.length){const empty=document.createElement("div");empty.className="data-empty";empty.textContent=isMemory?"No memory entries for this story yet.":"No milestones for this story yet.";list.append(empty);}
-  for(const row of rows){const card=document.createElement("article");card.className="data-card";const title=document.createElement("strong"),body=document.createElement("div");title.textContent=isMemory?(row.kind||"Memory"):(row.title||row.name||row.kind||"Milestone");body.textContent=row.text||row.evidence||row.description||row.label||JSON.stringify(row.data||row.value||"");if(!isMemory){const names=(row.participants||row.participantIds||[]).map(id=>vault.characters.find(c=>c.id===id)?.name).filter(Boolean);title.textContent+=(names.length?" · "+names.join(" · "):"")+(row.status==="candidate"?" — Needs confirmation":"");}card.append(title,body);if(!isMemory&&row.status==="candidate"){const confirmButton=document.createElement("button");confirmButton.type="button";confirmButton.className="ghost";confirmButton.textContent="Confirm completed milestone";confirmButton.onclick=async()=>{try{if(sending||phoneBusy)throw new Error("Wait until the current operation finishes.");const candidate=confirmMilestoneEvent(vault,row.id);await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;showDataView("milestones");}catch(e){showStatus(e.message,"error");}};card.append(confirmButton);const reject=document.createElement("button");reject.type="button";reject.className="ghost";reject.textContent="Not earned";reject.onclick=async()=>{try{if(sending||phoneBusy)return;const candidate=structuredClone(vault);candidate.milestones.find(m=>m.id===row.id).status="rejected";await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;showDataView("milestones");}catch(e){showStatus(e.message,"error");}};card.append(reject);}list.append(card);}
+  for(const row of rows){const card=document.createElement("article");card.className="data-card";const title=document.createElement("strong"),body=document.createElement("div");title.textContent=isMemory?(row.kind||"Memory"):(row.title||row.name||row.kind||"Milestone");body.textContent=row.text||row.evidence||row.description||row.label||JSON.stringify(row.data||row.value||"");if(!isMemory){const names=(row.participants||row.participantIds||[]).map(id=>vault.characters.find(c=>c.id===id)?.name).filter(Boolean);title.textContent+=(names.length?" · "+names.join(" · "):"")+(row.status==="candidate"?" — Needs confirmation":"");}card.append(title,body);if(!isMemory&&row.status!=="candidate"&&!validateCanonicalMilestone(row,vault).ok){const warning=document.createElement("p");warning.textContent="Historical record — currently not canonical. Evidence may have changed or needs verification.";card.append(warning);}if(!isMemory&&row.status==="candidate"){const confirmButton=document.createElement("button");confirmButton.type="button";confirmButton.className="ghost";confirmButton.textContent="Confirm completed milestone";confirmButton.onclick=async()=>{try{if(sending||phoneBusy)throw new Error("Wait until the current operation finishes.");const candidate=confirmMilestoneEvent(vault,row.id);await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;showDataView("milestones");}catch(e){showStatus(e.message,"error");}};card.append(confirmButton);const reject=document.createElement("button");reject.type="button";reject.className="ghost";reject.textContent="Not earned";reject.onclick=async()=>{try{if(sending||phoneBusy)return;const candidate=structuredClone(vault);candidate.milestones.find(m=>m.id===row.id).status="rejected";await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;showDataView("milestones");}catch(e){showStatus(e.message,"error");}};card.append(reject);}list.append(card);}
   ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));
   $(isMemory?"memoryNavButton":"milestonesNavButton").classList.add("active");
 }
