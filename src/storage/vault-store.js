@@ -22,7 +22,8 @@ export async function loadVault(db){
  return attachRevision(normalizeVault(raw),revisionOf(revision));
 }
 async function persistVault(db,vault,kind,expectedRevision,clear=false){
- const normalized=normalizeVault(vault),validation=validateVault(normalized);
+ const validation=validateVault(vault);
+ const normalized=normalizeVault(vault);
  if(!validation.ok)throw new Error(`Refusing to save invalid vault: ${validation.errors.join(" ")}`);
  // Freeze the proposed content and base revision before opening the transaction.
  const proposed=structuredClone(normalized);delete proposed.storageRevision;

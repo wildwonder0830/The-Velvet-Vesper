@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {emptyVault} from '../src/schema.js';
+import {vaultDb} from '../test-support/vault-db.js';
+import {loadVault,saveVaultAtomic} from '../src/storage/vault-store.js';
+import {prepareStoryDeletion} from '../src/library/story-deletion.js';
+const fixture=()=>({...emptyVault(),personas:[{id:'p',name:'Player'}],characters:[{id:'x',name:'Character X'},{id:'y',name:'Character Y'}],stories:[{id:'s',title:'Synthetic audit',personaId:'p',characterIds:['x','y'],settings:{model:'synthetic/model'}}],chats:[{id:'c',storyId:'s'}],messages:[{id:'u',storyId:'s',chatId:'c',role:'user',ordinal:0,text:'I look toward the garden.',audienceIds:['p','x']}]});
+test('corrupted persisted collections are rejected without rewriting data',async()=>{const db=vaultDb(),v=fixture();v.memoryEntries={corrupted:true};db.records.set('active',v);await assert.rejects(()=>loadVault(db),/memoryEntries must be a list/);assert.deepEqual(db.records.get('active'),v);});
+test('corrupted proposed collections cannot erase persisted collections',async()=>{const db=vaultDb();let v=await loadVault(db);v.memoryEntries=[{id:'retained',text:'Synthetic retained fact'}];await saveVaultAtomic(db,v);const before=structuredClone(db.records.get('active'));v.memoryEntries=null;await assert.rejects(()=>saveVaultAtomic(db,v),/memoryEntries must be a list/);assert.deepEqual(db.records.get('active'),before);});
+test('legacy missing collections still load without a save',async()=>{const db=vaultDb(),v=fixture();delete v.knowledgeEntries;db.records.set('active',v);const loaded=await loadVault(db);assert.deepEqual(loaded.knowledgeEntries,[]);assert.deepEqual(db.records.get('active'),v);});
+test('story deletion retains shared profiles and global personas and valid backup ownership',()=>{const v=fixture();v.characters[0].storyId='s';v.stories.push({...v.stories[0],id:'other'});v.chats.push({id:'d',storyId:'other'});const before=structuredClone(v),n=prepareStoryDeletion(v,'s');assert.deepEqual(v,before);assert.equal(n.personas.length,1);assert.equal(n.characters.length,2);assert.equal(n.characters[0].storyId,undefined);assert.equal(n.stories[0].id,'other');});

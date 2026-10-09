@@ -1,3 +1,4 @@
+import { prepareStoryDeletion } from "./library/story-deletion.js";
 import { roleplayMetaIssues } from "./chat/roleplay-integrity.js";
 import {assertDirectorStoryOpen,parseDirectorCommand,directorPreferences,updateDirectorPreferences,directorInstruction} from "./chat/director.js";
 import {mountChatMenu,bindComposerViewport} from "./ui/chat-menu.js";
@@ -14,7 +15,7 @@ import { appendPhoneMessage, markPhoneThreadRead } from "./phone/phone-state.js"
 import { reconcilePhoneDependencies } from "./phone/phone-context.js";
 import { runPhoneTurn } from "./phone/phone-engine.js";
 import { createStoryScroller, isMobileStoryLayout } from "./ui/story-scroller.js";
-import { prepareVaultRegeneration, completeVaultRegeneration } from "./chat/regeneration.js";
+import { prepareVaultRegeneration, prepareVaultBranchDeletion, completeVaultRegeneration } from "./chat/regeneration.js";
 import { mountMilestoneNotifications } from "./ui/milestone-notifications.js";
 import { openVesperDb, loadVault, saveVaultAtomic, subscribeVaultSaves } from "./storage/vault-store.js";
 import { commitPreparedImport } from "./migration/import-service.js";
@@ -118,33 +119,6 @@ async function sendPhoneMessage({storyId,threadId,text,action,onSubmitted,isView
   }finally{phoneBusy=false;storyPhone?.refresh();}
 }
 
-function applyVenomousAssistantRole(){
-  let changed=false;
-  for(const story of vault.stories||[]){
-    if(story.title!=="Venomous Devotion"||story.personaBinding)continue;
-    const valec=(vault.characters||[]).find(c=>c.storyId===story.id&&c.name==="Valec Thorne");
-    if(!valec)continue;
-    const persona=(vault.personas||[]).find(p=>p.id===activePersonaId(story));
-    if(persona){
-      persona.profile={...(persona.profile||{}),work:"Valec Thorne's personal assistant and executive aide inside the elite supernatural command organization. She manages his schedule, communications, files, access, and day-to-day command logistics while concealing that she is a prey-species rabbit shifter.",onlineUsername:"LILBUNNYBBY",onlineHistory:"For months she has had an emotionally intimate and explicitly sexual relationship through an anonymous shifter app as LILBUNNYBBY with a man she knows only as nobunnyonmymenu. She does not know he is Valec Thorne."};
-      changed=true;
-    }
-    const venomousPremise="For months, Amanda and Valec Thorne have maintained an emotionally intimate and explicitly sexual relationship through an anonymous shifter app without knowing each other's real-world identity. Valec is the S-rank black-mamba commander whose personal assistant and executive aide is Amanda; online he is nobunnyonmymenu, while Amanda is LILBUNNYBBY. He affectionately calls his anonymous partner little rabbit/bunny. Amanda secretly is a rabbit shifter and conceals her prey identity at work. Her supposed snake-repellent scent affects Valec like an intense mate-attraction signal.";
-    if(story.premise!==venomousPremise){story.premise=venomousPremise;changed=true;}
-    const venomousOpening={location:"Valec Thorne's private office inside the elite supernatural command center",facts:["The story begins after months of established anonymous online emotional and sexual history between Amanda and nobunnyonmymenu.","Valec has begun privately suspecting that Amanda may be his anonymous partner, but he does not yet know for certain.","Before calling Amanda into his office from her personal-assistant workstation just outside, Valec schedules a delayed message to his anonymous partner so it will arrive while she is standing in front of him. The message should be innocuous but intimate and recognizable as part of their established private dynamic.","Amanda enters Valec's office while wearing the scent product she believes repels snake shifters. To Valec it is intensely provocative and reinforces his suspicion.","While Valec observes Amanda, the delayed message arrives and her phone audibly dings in her pocket.","The stress/startle plus unstable concealment causes Amanda's rabbit ears to pop out visibly. This is involuntary and may be narrated.","The phone ding and rabbit ears together give Valec decisive confirmation that Amanda is his anonymous little rabbit.","Valec does NOT immediately tell Amanda that he is nobunnyonmymenu. He keeps that knowledge to himself for the moment and reacts with controlled, predatory intelligence rather than blurting out the reveal.","Stop before narrating Amanda's voluntary reaction, dialogue, decision, or attempt to explain."],direction:"Play the opening with strong dramatic irony, scent tension, predator/prey contrast, and Valec's unnerving self-control. Online Valec is warm, attentive, teasing, dominant, and sexually familiar with Amanda; Commander Thorne is controlled, intimidating, observant, and economical. When confirmation lands, let the internal impact be intense while his outward reaction remains restrained. Do not rush the identity reveal beyond the configured beat."};
-    if(!story.openingScene){story.openingScene=venomousOpening;changed=true;}
-    const hasAmandaHandle=(vault.memoryEntries||[]).some(m=>m.storyId===story.id&&m.data?.key==="amanda-online-identity");
-    if(!hasAmandaHandle){
-      const chat=(vault.chats||[]).find(c=>c.storyId===story.id);
-      if(chat){
-        vault.memoryEntries.push(createMemory({storyId:story.id,chatId:chat.id,kind:"canon",text:"Amanda's anonymous shifter-app username is LILBUNNYBBY. Valec knows her only by that handle online before the reveal.",data:{key:"amanda-online-identity"},pinned:true},new Date().toISOString()));
-        vault.memoryEntries.push(createMemory({storyId:story.id,chatId:chat.id,kind:"canon",text:"When actual anonymous-app messages appear in story prose, format each sender line as NOBUNNYONMYMENU: message or LILBUNNYBBY: message so the Vesper UI renders it as a text bubble.",data:{key:"app-message-format"},pinned:true},new Date().toISOString()));
-        changed=true;
-      }
-    }
-  }
-  return changed;
-}
 function ensurePreferenceLines(){
   if((vault.preferenceLines||[]).length)return false;
   vault.preferenceLines=seedDefaultGreenLines();
@@ -181,7 +155,7 @@ function vaultHasUserData(v){
 async function boot() {
   db = await openVesperDb(); vault = await loadVault(db);milestoneBaseline=new Map(vault.messages.map(m=>[m.id,m.text]));
   const hadUserData=vaultHasUserData(vault);
-  const changed=ensurePreferenceLines()||applyVenomousAssistantRole();
+  const changed=ensurePreferenceLines();
   if(changed&&hadUserData)await saveAppVault(db,vault);
   const milestoneNotifications=mountMilestoneNotifications(document,{getContext:()=>({storyId:activeStoryId,chatId:activeChatId}),getVault:()=>vault});
   milestoneNotifications.baseline(vault);
@@ -622,16 +596,10 @@ function closeDeleteStory(){pendingDeleteStoryId=null;$("deleteStoryPanel").hidd
 async function confirmDeleteStory(){
   const storyId=pendingDeleteStoryId;if(!storyId)return;
   const story=vault.stories.find(s=>s.id===storyId);if(!story){closeDeleteStory();return;}
-  const chatIds=new Set(vault.chats.filter(x=>x.storyId===storyId).map(x=>x.id));
-  const storyScoped=["messages","memoryEntries","milestones","relationships","statEvents","sceneStates","knowledgeEntries","loreEntries","usageEntries"];
-  for(const key of storyScoped)vault[key]=(vault[key]||[]).filter(x=>x.storyId!==storyId&&!chatIds.has(x.chatId));
-  vault.chats=vault.chats.filter(x=>x.storyId!==storyId);
-  vault.personas=vault.personas.filter(x=>!(x.storyId===storyId||storyPersonaIds(story).includes(x.id))||vault.stories.some(s=>s.id!==storyId&&storyPersonaIds(s).includes(x.id)));
-  const charIds=new Set([story.primaryCharacterId,...(story.characterIds||[])].filter(Boolean));
-  vault.characters=vault.characters.filter(x=>x.storyId!==storyId&&!charIds.has(x.id));
-  vault.stories=vault.stories.filter(x=>x.id!==storyId);reconcilePhoneRecords();vault.updatedAt=new Date().toISOString();
-  if(activeStoryId===storyId){activeStoryId=null;activeChatId=null;}
-  await saveAppVault(db,vault);closeDeleteStory();showLibrary();
+  if(sending||phoneBusy||importingBackup){showStatus("Wait until the current operation finishes.","notice");return;}
+  try{const candidate=prepareStoryDeletion(vault,storyId);await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;
+    if(activeStoryId===storyId){activeStoryId=null;activeChatId=null;}closeDeleteStory();showLibrary();
+  }catch(error){showStatus(`Story was not deleted: ${error.message}`,"error");}
 }
 function showLibrary(){
   storyPhone?.close();
@@ -729,25 +697,14 @@ async function editUserMessage(message){
 }
 async function deleteMessageBranch(message){
   if(sending){showStatus("Wait for Vesper to finish writing before deleting a post.","notice");return;}
-  const targetOrdinal=Number(message.ordinal);
-  const doomed=vault.messages.filter(m=>m.chatId===message.chatId&&(Number.isFinite(targetOrdinal)?Number(m.ordinal)>=targetOrdinal:m.id===message.id));
+  if(phoneBusy||importingBackup||$("assistantEditPanel")){showStatus("Wait until the current operation finishes.","notice");return;}
+  const targetOrdinal=Number(message.ordinal),doomed=vault.messages.filter(m=>m.storyId===message.storyId&&m.chatId===message.chatId&&(Number.isFinite(targetOrdinal)?Number(m.ordinal)>=targetOrdinal:m.id===message.id));
   if(!doomed.length)return;
-  const laterCount=Math.max(0,doomed.length-1);
-  const prompt=laterCount
-    ? `Delete this post and the ${laterCount} later post${laterCount===1?"":"s"} that depend on it?`
-    : "Delete this post from the story?";
-  if(!window.confirm(prompt))return;
-  const doomedIds=new Set(doomed.map(m=>m.id));
-  vault.messages=vault.messages.filter(m=>!doomedIds.has(m.id));
-  vault.memoryEntries=(vault.memoryEntries||[]).filter(entry=>!(entry.sourceMessageIds||[]).some(id=>doomedIds.has(id)));
-  vault.milestones=(vault.milestones||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
-  vault.knowledgeEntries=(vault.knowledgeEntries||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
-  vault.statEvents=(vault.statEvents||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
-  reconcilePhoneRecords();
-  retryMessageId=null;retryOpeningStoryId=null;vault.updatedAt=new Date().toISOString();
-  await saveAppVault(db,vault);
-  renderStory(message.storyId,message.chatId);
-  showStatus("Post removed. Vesper no longer sees that deleted branch in chat context.","notice");
+  if(!window.confirm(`Delete this post and ${Math.max(0,doomed.length-1)} later dependent posts in this chat?`))return;
+  try{const candidate=prepareVaultBranchDeletion(vault,message.id);await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;
+    retryMessageId=null;retryOpeningStoryId=null;renderStory(message.storyId,message.chatId);showStatus("Post removed. Obsolete branch dependencies were reconciled.","notice");
+  }catch(error){showStatus(`Post was not deleted: ${error.message}`,"error");}
+
 }
 
 async function regenerateAssistantMessage(message){

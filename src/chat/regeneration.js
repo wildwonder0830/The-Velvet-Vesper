@@ -31,9 +31,11 @@ const hidden=record=>['forgotten','deleted','excluded'].includes(record.status)|
 
 // A branch edit is prepared on a copy. Unsupported aggregates are not salvaged
 // by merely deleting citations: their prose can still contain discarded facts.
-export function prepareVaultRegeneration(vault,targetMessageId){
+export function prepareVaultRegeneration(vault,targetMessageId){return prepareVaultDiscard(vault,targetMessageId,true);}
+export function prepareVaultBranchDeletion(vault,targetMessageId){return prepareVaultDiscard(vault,targetMessageId,false).vault;}
+function prepareVaultDiscard(vault,targetMessageId,assistantOnly){
  const target=vault.messages.find(m=>m.id===targetMessageId);
- if(!target||target.role!=='assistant')throw new Error('Only an existing model reply can be regenerated.');
+ if(!target||assistantOnly&&target.role!=='assistant')throw new Error('Only an existing model reply can be regenerated.');
  if(!vault.chats.some(c=>c.id===target.chatId&&c.storyId===target.storyId))throw new Error('Regeneration chat ownership does not match the story.');
  const chatMessages=vault.messages.filter(m=>m.storyId===target.storyId&&m.chatId===target.chatId).sort((a,b)=>{
   const x=Number(a.ordinal),y=Number(b.ordinal);return Number.isFinite(x)&&Number.isFinite(y)&&x!==y?x-y:String(a.createdAt||'').localeCompare(String(b.createdAt||''));
