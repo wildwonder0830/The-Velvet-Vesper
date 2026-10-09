@@ -29,7 +29,7 @@ export function scanMilestoneEvents(vault,messageIds){
     const joint=chars.length===1&&new RegExp(`^(?:${escape(p.name)} and ${escape(chars[0].name)}|${escape(chars[0].name)} and ${escape(p.name)})\\s+(?:shared|had|went|completed|became|are|were|recognized|confirmed|discovered|confessed|exchanged|bonded)\\b`,'i').test(evidence.trim());
     const firstPersonEvent=firstPerson&&chars.length===1&&milestoneNames(next,s.id,chars[0]).some(n=>new RegExp(`^I\\s+kissed\\s+${escape(n)}\\s+for the first time[.!*\\s]*$`,'i').test(evidence.trim().replace(/[*_]/g,'')));
     const relationshipExplicit=type!=='relationship_official'||/\b(?:romantic partners|boyfriend|girlfriend|official|a couple)\b/i.test(evidence);
-    const clear=relationshipExplicit&&m.role==='user'&&((joint&&subject)||firstPersonEvent)&&!/["“”]/.test(evidence)&&! /\b(?:said|told|discussed|described|describing|reported|pretended|planned|read|wrote|recalled|remembered|story|book|message|text|phone|about)\b/i.test(evidence);
+    const clear=relationshipExplicit&&m.role==='user'&&((joint&&subject)||firstPersonEvent)&&!/["“”]/.test(evidence)&&! /\b(?:research(?:ed|ing)?|stud(?:ied|ying)|learn(?:ed|ing)?|investigat(?:ed|ing)|attempt(?:ed|ing)?|prepar(?:ed|ing)|anticipated|said|told|discussed|described|describing|reported|pretended|planned|read|wrote|recalled|remembered|story|book|message|text|phone|about)\b/i.test(evidence);
     if(clear){const verified={...candidate,status:'confirmed',source:'user-authored-event',verification:{verified:true,completed:true,verifiedBy:'source-evidence',method:'explicit-user-event'}};if(validateCanonicalMilestone(verified,next).ok)Object.assign(candidate,verified);}
     next.milestones.push(candidate);
    }

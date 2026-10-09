@@ -1,3 +1,4 @@
+import {assertRoleplayOpen} from "../chat/roleplay-integrity.js";
 import { activePersonaId } from "../personas/persona-store.js";
 import { assemblePrompt } from '../prompt/prompt-assembler.js';
 import { buildPhoneContext, filterPhoneProvenance } from './phone-context.js';
@@ -9,25 +10,32 @@ import { validateModelOutput } from '../validation/output-gate.js';
 export async function runPhoneTurn({vault,storyId,threadId,action,signal,send=sendOpenRouterChat}) {
   if (!['send','continue'].includes(action)) throw new Error('Choose Send or Continue explicitly.');
   const story=vault.stories.find(s=>s.id===storyId);if(!story)throw new Error('Story unavailable.');
+  assertRoleplayOpen(story);
   validateStoryPhone(story,vault);
   const thread=story.phone?.threads.find(t=>t.id===threadId);if(!thread)throw new Error('Phone thread unavailable.');
   if(thread.historicalOnly||thread.participantIds.some(id=>!vault.characters.some(c=>c.id===id)))throw new Error('Historical contact archives are read-only; no AI request was made.');
-  const settings=story.settings||{},a=assemblePrompt({vault,storyId,chatId:thread.chatId,preferenceLines:vault.preferenceLines,storySettings:settings});
+  const settings=story.settings||{},a=assemblePrompt({vault,storyId,chatId:thread.chatId,recipientIds:thread.participantIds,preferenceLines:vault.preferenceLines,storySettings:settings});
   const characters=a.characters.filter(c=>thread.participantIds.includes(c.id));
   if (characters.length !== thread.participantIds.length) throw new Error('A thread participant is no longer in this story. Edit membership before continuing.');
   const history=buildPhoneContext(vault,{storyId,chatId:thread.chatId,respondingCharacterIds:thread.participantIds,threadId});
   // Main transcript is intentionally withheld: it has no reliable per-character audience metadata.
   // Character-owned context is admitted only when all responding participants own it.
-  const shared = record => {
+  const shared = (record,visited=new Set()) => {
+    if(!record||typeof record!=='object')return true;
     const data=record.data&&typeof record.data==='object'?record.data:{};
-    const knower=record.knowerId??data.knowerId;
-    const character=record.characterId??data.characterId;
+    const knower=record.knowerId??data.knowerId,character=record.characterId??data.characterId;
     const owners=knower?[knower]:character?[character]:(record.knowerIds||data.knowerIds||record.participantIds||data.participantIds||record.subjectIds||data.subjectIds||null);
-    return !owners || thread.participantIds.every(id=>owners.includes(id));
+    const audience=record.audienceIds??data.audienceIds;
+    if(owners&&(!Array.isArray(owners)||!thread.participantIds.every(id=>owners.includes(id)))||audience&&(!Array.isArray(audience)||!thread.participantIds.every(id=>audience.includes(id))))return false;
+    for(const [single,multiple,collection] of [['sourceMessageId','sourceMessageIds','messages'],['sourceMemoryId','sourceMemoryIds','memoryEntries']]){
+      const refs=[record[single],data[single],...(record[multiple]||[]),...(data[multiple]||[])].filter(Boolean);
+      for(const id of refs){const key=collection+':'+id;if(visited.has(key))continue;visited.add(key);const source=vault[collection].find(row=>row.id===id);if(!source||!shared(source,visited))return false;}
+    }
+    return Object.values(record).every(value=>!value||typeof value!=="object"||(Array.isArray(value)?value.every(child=>shared(child,visited)):shared(value,visited)));
   };
-  const memory=a.memory.filter(shared),lore=a.lore.filter(r=>r.scope!=='character'||thread.participantIds.every(id=>id===r.characterId));
+  const memory=a.memory.filter(row=>shared(row)),lore=a.lore.filter(r=>shared(r)&&(r.scope!=='character'||thread.participantIds.every(id=>id===r.characterId)));
   const relationship=a.relationship&&shared(a.relationship)?a.relationship:null;
-  const milestones=a.milestones.filter(shared);
+  const milestones=a.milestones.filter(row=>shared(row));
   // Avoid continuity's combined knowledge block; regenerate only from admitted canonical sources.
   const payload=filterPhoneProvenance(vault,{hardRules:a.hardRules,sexualRedLines:a.sexualRedLines,greenLines:a.greenLines,storySettings:a.storySettings,
     rpPolicy:a.agencyAndRpPolicy,persona:a.persona,protagonistIdentity:a.protagonistIdentity,characters,relationship,milestones,memory,lore,
@@ -52,6 +60,7 @@ export async function runPhoneTurn({vault,storyId,threadId,action,signal,send=se
   sources.sourceMemoryIds=[...memoryIds];sources.sourceMessageIds=[...messageIds];sources.sourceMilestoneIds=[...milestoneIds];
   const response=await send({model:settings.model,messages:[{role:'system',content:JSON.stringify(payload)}],temperature:settings.temperature,maxTokens:settings.maxTokens,signal});
   try {
+  if(response?.choices?.[0]?.finish_reason==='length')throw new Error('The provider truncated this phone reply. No partial reply was saved.');
   let rows;
   try {rows=JSON.parse(response?.choices?.[0]?.message?.content||'');}catch{throw new Error('Vesper returned an unreadable phone reply. Use Continue to try again.');}
   if (!Array.isArray(rows)||!rows.length||rows.length>20) throw new Error('Vesper returned no valid phone messages.');

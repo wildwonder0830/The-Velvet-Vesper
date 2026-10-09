@@ -38,11 +38,11 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
 
   if (!personaDraft) {
     const name=persona?.name||"Amanda",escaped=name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
-    const agencyPatterns=[...USER_AGENCY_PATTERNS,...USER_AGENCY_PATTERNS.map(p=>new RegExp(p.source.replace("Amanda",escaped),p.flags))];
+    const agencyPatterns=USER_AGENCY_PATTERNS.map(p=>new RegExp(p.source.replace("Amanda",escaped),p.flags));
     for (const pattern of agencyPatterns) {
       const outputMatch = text.match(pattern)?.[0]?.replace(/\s+/g, " ").trim().toLowerCase();
       const userEstablished = outputMatch && priorUserText.replace(/\s+/g, " ").toLowerCase().includes(outputMatch);
-      if (outputMatch && !userEstablished) issues.push({ type: "user-agency", severity: "repair", message: "Model supplied a voluntary or consequential choice for Amanda." });
+      if (outputMatch && !userEstablished) issues.push({ type: "user-agency", severity: "repair", message: `Model supplied a voluntary or consequential choice for ${name}.` });
     }
   }
   if (!personaDraft && PRIVATE_AUTHORSHIP_CONTEXT.test(String(text)) && INVENTED_PERSONA_PRIVATE_VOICE.test(String(text))) {

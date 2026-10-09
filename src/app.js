@@ -1,5 +1,6 @@
 import { prepareStoryDeletion } from "./library/story-deletion.js";
-import { roleplayMetaIssues } from "./chat/roleplay-integrity.js";
+import { parseCommand } from "./chat/commands.js";
+import { roleplayMetaIssues, assertRoleplayOpen } from "./chat/roleplay-integrity.js";
 import {assertDirectorStoryOpen,parseDirectorCommand,directorPreferences,updateDirectorPreferences,directorInstruction} from "./chat/director.js";
 import {mountChatMenu,bindComposerViewport} from "./ui/chat-menu.js";
 import {mountHistoricalMilestones} from './ui/historical-milestones.js';
@@ -92,6 +93,7 @@ async function sendPhoneMessage({storyId,threadId,text,action,onSubmitted,isView
   if(sending||phoneBusy)throw new Error("Wait for the current request to finish.");
   const story=vault.stories.find(s=>s.id===storyId),thread=story?.phone?.threads.find(t=>t.id===threadId);
   if(!thread)throw new Error("Phone thread is unavailable.");
+  assertRoleplayOpen(story);
   if(thread.historicalOnly||thread.participantIds.some(id=>!vault.characters.some(c=>c.id===id)))throw new Error("Historical contact archives are read-only; no AI request was made.");
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY))throw new Error("Add your OpenRouter API key in Settings first.");
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
@@ -126,7 +128,7 @@ function ensurePreferenceLines(){
 }
 function cncPreferenceLine(){return (vault.preferenceLines||[]).find(line=>(line.tags||[]).includes("cnc"))||null;}
 function sexualBoundaryIssues(result){return (result?.validation?.issues||[]).filter(issue=>issue.type==="sexual-red-line");}
-function canReviewBlockedReply(result){return Boolean(!roleplayMetaIssues(result?.blockedText||result?.text).length&&result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length);}
+function canReviewBlockedReply(result){return Boolean(!roleplayMetaIssues(result?.blockedText||result?.text).length&&result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length&&result.validation.issues.every(issue=>issue.type==="sexual-red-line"));}
 function closeBlockedReplyReview(){pendingBlockedReview=null;const panel=$("blockedReplyPanel");if(panel)panel.hidden=true;}
 function offerBlockedReplyReview({result,onAccept,onReject}){
   if(!canReviewBlockedReply(result))return false;
@@ -365,6 +367,8 @@ async function saveSettings(){
   const modelChanged=(modelEl?.value||"").trim()!==settingsModelSnapshot.trim();
   const selectedModel=modelChanged?validateModelId(modelEl?.value):{ok:true,id:settingsModelSnapshot.trim()};
   if(!selectedModel.ok){$("modelSelectionError").textContent=selectedModel.error;$("modelSelectionError").hidden=false;return;}
+  const temperature=Number($("temperatureSetting")?.value),maxTokens=Number($("maxTokensSetting")?.value);
+  if(!$("temperatureSetting")?.value?.trim()||!Number.isFinite(temperature)||temperature<0||temperature>2||!Number.isSafeInteger(maxTokens)||maxTokens<128||maxTokens>8000){$("modelSelectionError").textContent="Enter a temperature from 0 to 2 and a whole-number token limit from 128 to 8000. Nothing was saved.";$("modelSelectionError").hidden=false;return;}
   $("modelSelectionError").hidden=true;
   if(styleStory&&modelChanged&&!enteredKey&&modelIndependentSignature()===settingsModelFormSnapshot){
     const previous=styleStory.settings;
@@ -376,24 +380,24 @@ async function saveSettings(){
   if(styleStory&&intimacyStyle!==normalizeIntimacyStyle(styleStory.settings?.intimacyStyle)&&!enteredKey&&settingsFormSignature()===settingsFormSnapshot){
     const previous=styleStory.settings;
     styleStory.settings={...(previous||{}),intimacyStyle};
-    try{await saveAppVault(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;throw error;}
+    try{await saveAppVault(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;$("modelSelectionError").textContent=error.message;$("modelSelectionError").hidden=false;return;}
     $("settingsPanel").hidden=true;
     return;
   }
   if(replaceRow&&!replaceRow.hidden&&enteredKey) replaceOpenRouterKey(enteredKey);
   if(apiKeyEl)apiKeyEl.value="";if(replaceRow)replaceRow.hidden=true;renderKeyStatus();
   const modelValue=modelEl?.value?.trim()||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
-  localStorage.setItem("vesper.model",modelValue);
-  const story=(vault?.stories||[]).find(s=>s.id===activeStoryId);
+  const candidate=structuredClone(vault),story=(candidate?.stories||[]).find(s=>s.id===activeStoryId);
   if(story){
     const cncLine=cncPreferenceLine(),enabledIds=new Set(story.settings?.enabledPreferenceLineIds||[]);
     if(cncLine){if($("cncToggle")?.checked)enabledIds.add(cncLine.id);else enabledIds.delete(cncLine.id);}
-    story.settings={...(story.settings||{}),model:modelValue,temperature:Number($("temperatureSetting")?.value)||0.9,maxTokens:Number($("maxTokensSetting")?.value)||1200,intimacyPacing:$("intimacyPacing")?.value||"balanced",...(intimacyStyle!==normalizeIntimacyStyle(story.settings?.intimacyStyle)?{intimacyStyle}:{}),requirePlotAfterSex:Boolean($("requirePlotAfterSex")?.checked),enabledPreferenceLineIds:[...enabledIds]};
-    await saveAppVault(db,vault);
+    story.settings={...(story.settings||{}),model:modelValue,temperature,maxTokens,intimacyPacing:$("intimacyPacing")?.value||"balanced",...(intimacyStyle!==normalizeIntimacyStyle(story.settings?.intimacyStyle)?{intimacyStyle}:{}),requirePlotAfterSex:Boolean($("requirePlotAfterSex")?.checked),enabledPreferenceLineIds:[...enabledIds]};
+    try{vault=await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});}catch(error){$("modelSelectionError").textContent=error.message;$("modelSelectionError").hidden=false;return;}
   }
+  localStorage.setItem("vesper.model",modelValue);
   $("settingsPanel").hidden=true;
 }
-async function runStoryTool(kind){
+async function runStoryTool(kind,onReady){
   if(sending)return;
   const prompts={
     continue:"[OOC: Continue directly from the exact point where the previous response stopped. If it ended mid-sentence, complete that sentence first. Do not repeat or summarize prior prose. Continue the scene naturally and stop on a complete narrative beat.]",
@@ -401,17 +405,17 @@ async function runStoryTool(kind){
   };
   const instruction=prompts[kind];if(!instruction)return;
   const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);if(!story||!chat)return;
-  await generateToolReply({story,chat,instruction,label:kind==="continue"?"Continuing…":"Elaborating…"});
+  await generateToolReply({story,chat,instruction,label:kind==="continue"?"Continuing…":"Elaborating…",onReady});
 }
-async function generateToolReply({story,chat,instruction,label,director=false}){
+async function generateToolReply({story,chat,instruction,label,director=false,onReady}){
   if(sending||phoneBusy||importingBackup||$("assistantEditPanel"))return;
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
-  sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus(label,"working");
+  onReady?.();sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus(label,"working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,director,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,director,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal,repairAttempts:0});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
     if(director&&result.issueTypes?.includes("director-meta"))throw new Error("Director returned story-ending commentary instead of continuing. No reply was added. Retry only if you choose to.");
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>generateToolReply({story,chat,instruction,label,director})})){showStatus("Reply held for your boundary review.","notice");return;}throw new Error("Vesper couldn\'t produce a usable reply.");}
@@ -443,7 +447,7 @@ async function generateMyTurnDraft(){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const instruction=`[OOC TOOL — MY TURN: Draft ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s next possible roleplay turn for the user to review and edit. Write ONLY ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s proposed response. This is a draft only and must not be treated as sent canon until the user submits it.]`;
-    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal,repairAttempts:0});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
     if(result.blocked||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable draft.");
     if(activeStoryId!==story.id||activeChatId!==chat.id||input.value!==prior){showStatus("Draft request finished. Your current draft was preserved.","notice");return;}
@@ -487,7 +491,7 @@ async function generateOpeningForStory(story,chatId){
   sending=true;setGenerationUi(true);showRetry(false);activeGenerationController=new AbortController();showStatus("Vesper is opening the story…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const result=await runTurn({vault,storyId:story.id,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:3000,repairAttempts:4,signal:activeGenerationController.signal});
+    const result=await runTurn({vault,storyId:story.id,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:3000,repairAttempts:0,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId,model});await saveAppVault(db,vault);
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){
       const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");
@@ -538,7 +542,7 @@ async function generateReplyForMessage({message,story,chat}){
   sending=true;setGenerationUi(true);showRetry(false);activeGenerationController=new AbortController();showStatus("Vesper is writing…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal,repairAttempts:0});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
     if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryMessageId=null;await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>{retryMessageId=message.id;await generateReplyForMessage({message,story,chat});}})){retryMessageId=message.id;showStatus("Reply held for your boundary review.","notice");return;}throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn\'t produce a valid reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
@@ -556,14 +560,15 @@ async function sendTurn(event){
   catch(error){showStatus(error.message,"error");return;}
   const commandMatch=text.match(/^\/(ooc|continue|elaborate)\b\s*([\s\S]*)$/i);
   if(commandMatch){
-    $("messageInput").value="";
+    const clearCommand=()=>{if($("messageInput").value===composerDraft)$("messageInput").value="";};
     const name=commandMatch[1].toLowerCase(),args=commandMatch[2].trim();
-    if(name==="continue"||name==="elaborate"){await runStoryTool(name);return;}
+    if(name==="continue"||name==="elaborate"){await runStoryTool(name,clearCommand);return;}
     if(name==="ooc"){
       if(!args){showStatus("Add an instruction after /ooc.","notice");return;}
-      await generateToolReply({story,chat,instruction:`[OOC: ${args}]`,label:"Applying OOC instruction…"});return;
+      await generateToolReply({story,chat,instruction:`[OOC: ${args}]`,label:"Applying OOC instruction…",onReady:clearCommand});return;
     }
   }
+  const parsedCommand=parseCommand(text);if(parsedCommand){showStatus("This command is not implemented. Use the Story menu or /ooc, /continue, /elaborate, /skip, /event or /surprise. Your draft was kept; no request was made.","notice");return;}
   const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok){showStatus(runnable.reason,"error");return;}
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
@@ -723,7 +728,7 @@ async function regenerateAssistantMessage(message){
   sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus(opening?"Regenerating opening…":"Regenerating reply…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const result=await runTurn({vault:tempVault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},opening,temperature:story.settings?.temperature??0.9,maxTokens:opening?3000:(story.settings?.maxTokens??1200),repairAttempts:opening?4:2,signal:activeGenerationController.signal});
+    const result=await runTurn({vault:tempVault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},opening,temperature:story.settings?.temperature??0.9,maxTokens:opening?3000:(story.settings?.maxTokens??1200),repairAttempts:0,signal:activeGenerationController.signal});
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a valid replacement.");
     const usageEntries=(result.usage||[]).map(usage=>recordUsage({storyId:story.id,chatId:chat.id,model,promptTokens:usage?.prompt_tokens||0,completionTokens:usage?.completion_tokens||0,cost:null}));
     const candidate=completeVaultRegeneration(plan,{id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal:targetOrdinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired},usageEntries);

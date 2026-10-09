@@ -1,8 +1,9 @@
+import {activePersonaId} from "../personas/persona-store.js";
 export function listStoryChoices(vault) {
   return (vault.stories || []).map(story => {
     const ids = [...new Set([story.primaryCharacterId, ...(story.characterIds || [])].filter(Boolean))];
     const cast = ids.map(id => (vault.characters || []).find(c => c.id === id)).filter(Boolean);
-    const persona = (vault.personas || []).find(p => p.id === story.personaId);
+    const persona = (vault.personas || []).find(p => p.id === activePersonaId(story));
     const chats = (vault.chats || []).filter(c => c.storyId === story.id);
     return {
       storyId: story.id,
@@ -21,7 +22,7 @@ export function chooseInitialChat(vault, storyId) {
 export function storyIsRunnable(vault, storyId) {
   const story = (vault.stories || []).find(s => s.id === storyId);
   if (!story) return { ok: false, reason: "Story not found." };
-  const persona = (vault.personas || []).find(p => p.id === story.personaId);
+  const persona = (vault.personas || []).find(p => p.id === activePersonaId(story));
   if (!persona) return { ok: false, reason: "Choose a valid persona for this story before sending." };
   const ids = [...new Set([story.primaryCharacterId, ...(story.characterIds || [])].filter(Boolean))];
   if (!ids.length) return { ok: false, reason: "Choose at least one character for this story before sending." };

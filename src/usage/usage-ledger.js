@@ -1,6 +1,9 @@
 import { makeId } from "../schema.js";
 
 export function recordUsage({ storyId = null, chatId = null, model, promptTokens = 0, completionTokens = 0, cost = null, provider = "openrouter" }, now = new Date().toISOString()) {
+  promptTokens=Number.isSafeInteger(promptTokens)&&promptTokens>=0?promptTokens:0;
+  completionTokens=Number.isSafeInteger(completionTokens)&&completionTokens>=0?completionTokens:0;
+  if(!Number.isSafeInteger(promptTokens+completionTokens))promptTokens=completionTokens=0;
   return {
     id: makeId("usage"), storyId, chatId, model, provider,
     promptTokens, completionTokens, totalTokens: promptTokens + completionTokens,

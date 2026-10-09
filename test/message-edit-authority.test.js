@@ -57,7 +57,7 @@ test('reload and backup/restore retain corrections, history, and exclusion',asyn
 });
 test('provider and repair both receive authoritative corrections and omit stale memory',async()=>{
  const v=edit(fixture()),bodies=[],oldFetch=globalThis.fetch,oldStorage=globalThis.localStorage;
- globalThis.localStorage={getItem:()=> 'synthetic-key'};globalThis.fetch=async(_url,options)=>{bodies.push(JSON.parse(options.body));return {ok:true,json:async()=>({choices:[{message:{content:bodies.length===1?'Amanda decided to leave.':'The room settled quietly.'}}]})};};
+ globalThis.localStorage={getItem:()=> 'synthetic-key'};globalThis.fetch=async(_url,options)=>{bodies.push(JSON.parse(options.body));return {ok:true,json:async()=>({choices:[{message:{content:bodies.length===1?'Synthetic Persona decided to leave.':'The room settled quietly.'}}]})};};
  try{await runTurn({vault:v,storyId:'s',chatId:'a',model:'synthetic'});assert.equal(bodies.length,2);for(const body of bodies){const system=JSON.parse(body.messages[0].content);assert.equal(system.authoritativeEdits.messages[0].text,v.messages[0].text);assert.ok(!JSON.stringify(body).includes('ORIGINAL_ERROR'));assert.ok(!JSON.stringify(body).includes('STALE_SUMMARY'));}}
  finally{globalThis.fetch=oldFetch;if(oldStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=oldStorage;}
 });
@@ -128,7 +128,7 @@ test('recovery restores original prose only through an explicit new save, with o
 
 test('repair refresh sees a newer correction and invalidates summaries written before it',async()=>{
  const v=edit(fixture()),bodies=[],oldFetch=globalThis.fetch,oldStorage=globalThis.localStorage;
- globalThis.localStorage={getItem:()=> 'synthetic-key'};globalThis.fetch=async(_url,options)=>{bodies.push(JSON.parse(options.body));if(bodies.length===1){v.memoryEntries.push({id:'mid-turn-summary',storyId:'s',chatId:'a',kind:'summary',text:'MID_TURN_STALE',sourceMessageIds:['reply'],status:'active'});Object.assign(v,edit(v,'LATEST_CORRECTION: The box was green.'));}return {ok:true,json:async()=>({choices:[{message:{content:bodies.length===1?'Amanda decided to leave.':'The room settled quietly.'}}]})};};
+ globalThis.localStorage={getItem:()=> 'synthetic-key'};globalThis.fetch=async(_url,options)=>{bodies.push(JSON.parse(options.body));if(bodies.length===1){v.memoryEntries.push({id:'mid-turn-summary',storyId:'s',chatId:'a',kind:'summary',text:'MID_TURN_STALE',sourceMessageIds:['reply'],status:'active'});Object.assign(v,edit(v,'LATEST_CORRECTION: The box was green.'));}return {ok:true,json:async()=>({choices:[{message:{content:bodies.length===1?'Synthetic Persona decided to leave.':'The room settled quietly.'}}]})};};
  try{await runTurn({vault:v,storyId:'s',chatId:'a',model:'synthetic'});assert.equal(bodies.length,2);assert.ok(JSON.stringify(bodies[0]).includes('CORRECTED_AUTHORITY'));assert.ok(JSON.stringify(bodies[1]).includes('LATEST_CORRECTION'));assert.ok(!JSON.stringify(bodies[1]).includes('CORRECTED_AUTHORITY'));assert.ok(!JSON.stringify(bodies[1]).includes('MID_TURN_STALE'));}
  finally{globalThis.fetch=oldFetch;if(oldStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=oldStorage;}
 });

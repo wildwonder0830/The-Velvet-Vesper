@@ -1,3 +1,4 @@
+import {sourceAudienceVisible} from "../context/source-audience.js";
 import { projectRoleplayContext } from "../chat/roleplay-integrity.js";
 import { identityOwnership } from "./identity-ownership.js";
 import { personaModelVault, protagonistDirective, messagePersonaId } from "../personas/persona-store.js";
@@ -14,16 +15,17 @@ import { filterMemoryForModel } from "../memory/memory-manager.js";
 import { milestoneSupportsRelationship } from "../milestones/verifier.js";
 import { normalizeIntimacyStyle, compileIntimacyStyle } from "../settings/intimacy-style.js";
 
-export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], storySettings = {}, oocInstruction = "", maxRecentMessages = 40 }) {
+export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], storySettings = {}, oocInstruction = "", maxRecentMessages = 40, recipientIds = null }) {
   vault=projectRoleplayContext(vault);
-  const edits=authoritativeReplyContext(vault,storyId,chatId);
+  let edits=authoritativeReplyContext(vault,storyId,chatId);
   const phoneVault=projectEditedContext(vault);
   vault=personaModelVault(phoneVault,storyId);
-  const context=buildStoryContext(vault,storyId,chatId);
+  const context=buildStoryContext(vault,storyId,chatId,{recipientIds});
+  if(edits){edits.messages=edits.messages.filter(m=>sourceAudienceVisible(m,vault,recipientIds??context.characters.map(c=>c.id)));if(!edits.messages.length)edits=null;}
   const intimacyStyle=normalizeIntimacyStyle(Object.hasOwn(storySettings,"intimacyStyle")?storySettings.intimacyStyle:context.story?.settings?.intimacyStyle);
   const chat=(vault.chats||[]).find(c=>c.id===chatId&&c.storyId===storyId);
   if(!chat) throw new Error("Chat not found in active story.");
-  const recentMessages=selectRecentMessages(filterMemoryForModel((vault.messages||[]).filter(m=>m.storyId===storyId&&m.chatId===chatId),vault.memoryEntries,storyId),{maxMessages:maxRecentMessages});
+  const recentMessages=selectRecentMessages(filterMemoryForModel((vault.messages||[]).filter(m=>m.storyId===storyId&&m.chatId===chatId&&sourceAudienceVisible(m,vault,recipientIds??context.characters.map(c=>c.id))),vault.memoryEntries,storyId),{maxMessages:maxRecentMessages});
   const relationship=context.relationships[0]||null;
   const validatedBond=context.milestones.find(m=>m.type==="mated"&&(relationship?milestoneSupportsRelationship(m,relationship):m.participants.includes(context.persona?.id)));
   const mateBond=relationship?.stage==="mated"||Boolean(validatedBond);

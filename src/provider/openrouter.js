@@ -29,7 +29,7 @@ export async function sendOpenRouterChat({ model, messages, temperature, maxToke
     signal
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
+  if (!response.ok || data?.error) {
     const primary=data?.error?.message||`OpenRouter request failed (${response.status}).`;
     const raw=data?.error?.metadata?.raw||data?.error?.metadata?.message||data?.error?.metadata?.provider_error||"";
     const provider=data?.error?.metadata?.provider_name||data?.error?.metadata?.provider||"";
@@ -39,5 +39,6 @@ export async function sendOpenRouterChat({ model, messages, temperature, maxToke
     error.providerPayload=data?.error||null;
     throw error;
   }
+  if(typeof data?.choices?.[0]?.message?.content!=="string")throw new Error("OpenRouter returned a malformed reply. No additional request was made.");
   return data;
 }

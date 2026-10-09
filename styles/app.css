@@ -181,6 +181,8 @@
 @media(max-width:799px),(hover:none) and (pointer:coarse){
  .story-open .chat-view>.composer{position:fixed!important;left:0;right:0;bottom:calc(58px + var(--safe))!important;z-index:20;padding:8px 10px;background:#090708f5;max-width:100%;}
  .story-open .messages{padding-bottom:calc(var(--composer-reserved,164px) + 76px + var(--safe) + var(--reply-tail,0px))}
+ /* Reserve space only for a visible retry row above the fixed composer. */
+ .story-open .chat-view>.generation-actions:has(.retry-button:not([hidden])){margin-bottom:calc(var(--composer-reserved,164px) + 8px)}
  .story-open.keyboard-open .chat-view>.composer{bottom:var(--keyboard-inset,0px)!important;padding-bottom:max(8px,env(safe-area-inset-bottom))}
  .story-open.keyboard-open .bottom-nav{visibility:hidden!important;pointer-events:none}
  .composer-entry{gap:6px}.composer textarea{min-height:64px!important;max-height:96px;padding:10px}

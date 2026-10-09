@@ -1,3 +1,4 @@
+import {sourceAudienceVisible} from "../context/source-audience.js";
 import { personaModelVault } from "../personas/persona-store.js";
 import { projectEditedContext } from "../chat/message-edit.js";
 import { applyHardRuleSanitizers, findHardRuleViolations, VESPER_HARD_RULES } from "../rules/hard-rules.js";
@@ -42,7 +43,7 @@ function relationshipSourcesVisible(record, vault, storyId, chatId) {
     milestoneDerivedRecordIsCanonical(r, vault, storyId, chatId)));
 }
 
-export function buildStoryContext(vault, storyId, chatId = null) {
+export function buildStoryContext(vault, storyId, chatId = null, {recipientIds=null}={}) {
   vault = projectEditedContext(vault);
   const story = byId(vault.stories, storyId);
   if (!story) throw new Error("Story not found.");
@@ -73,6 +74,9 @@ export function buildStoryContext(vault, storyId, chatId = null) {
         ? Boolean(chatId && k.chatId === chatId) : true) && relationshipSourcesVisible(k, vault, storyId, chatId) && milestoneDerivedRecordIsCanonical(k, vault, storyId, chatId))
   };
 
+  const recipients=recipientIds??characters.map(c=>c.id),visible=record=>sourceAudienceVisible(record,vault,recipients);
+  for(const key of ["memory","lore","relationships","milestones","knowledge"])context[key]=context[key].filter(visible);
+  if(context.sceneState&&!visible(context.sceneState))context.sceneState=null;
   return sanitizeContext(filterMemoryForModel(context,vault.memoryEntries,storyId));
 }
 

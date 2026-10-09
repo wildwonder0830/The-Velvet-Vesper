@@ -10,7 +10,7 @@ async def run():
  async with async_playwright() as p:
   browser=await p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
   for device in ['Desktop','iPhone 13','iPad (gen 7)']:
-   for mode in ['success','failure','write-failure','conflict']:
+   for mode in ['success','failure','write-failure','conflict','blocked']:
     opts={} if device=='Desktop' else p.devices[device].copy();opts.pop('default_browser_type',None)
     ctx=await browser.new_context(**opts);page=await ctx.new_page();errors=[];payloads=[];newest=None
     page.on('pageerror',lambda e:errors.append(str(e)));page.on('dialog',lambda dialog:dialog.accept())
@@ -20,23 +20,23 @@ async def run():
      if mode=='conflict' and len(payloads)==1:
       newest=await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js'),db=await s.openVesperDb(),v=await s.loadVault(db);v.messages.push({id:'newest',storyId:'other-story',chatId:'other-chat',role:'user',ordinal:1,text:'Newer concurrent save.'});await s.saveVaultAtomic(db,v);return JSON.stringify(await s.loadVault(db));}")
      if mode=='failure':await route.fulfill(status=503,content_type='application/json',body=json.dumps({'error':{'message':'Synthetic provider failure'}}));return
-     if mode=='write-failure' and len(payloads)==2:
+     if mode=='write-failure' and len(payloads)==1:
       await page.evaluate("()=>{const original=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(value,key){const r=original.call(this,value,key);if(this.name==='vault'&&key==='active'){IDBObjectStore.prototype.put=original;const tx=this.transaction;r.addEventListener('success',()=>tx.abort());}return r;};}")
-     text='Amanda decided to leave.'  if len(payloads)==1 else 'The evening settled quietly.'
+     text='Persona decided to leave.' if mode=='blocked' else 'The evening settled quietly.'
      await route.fulfill(status=200,content_type='application/json',body=json.dumps({'choices':[{'message':{'content':text}}],'usage':{'prompt_tokens':10,'completion_tokens':5}}))
     await ctx.route('https://openrouter.ai/**',provider)
     await page.goto('http://127.0.0.1:8774/');await page.locator('.milestone-toast').wait_for(state='attached');await page.evaluate(seed);await page.reload();await page.locator('.milestone-toast').wait_for(state='attached');await page.click('#storyNavButton')
     before=await snapshot(page);revision=await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js');return (await s.loadVault(await s.openVesperDb())).storageRevision;}")
     await page.get_by_role('button',name='Regenerate',exact=True).click()
-    expected='Reply regenerated.' if mode=='success' else 'Original messages kept.' if mode=='write-failure' else 'Regeneration failed:' if mode=='failure' else 'Regeneration was not saved.'
+    expected='Reply regenerated.' if mode=='success' else 'Original messages kept.' if mode=='write-failure' else 'Regeneration failed:' if mode=='failure' else 'Regeneration failed:' if mode=='blocked' else 'Regeneration was not saved.'
     await page.wait_for_function('(value)=>document.querySelector("#status").textContent.includes(value)',arg=expected)
     assert payloads
     for body in payloads:
      assert not any(marker in body for marker in ['DISCARDED_BRANCH','LATER_BRANCH','OBSOLETE_']),body
      assert 'SURVIVING_CANON' in body
-    if mode!='failure':assert len(payloads)==2
+    assert len(payloads)==1
     after=await snapshot(page)
-    if mode in ['failure','write-failure']:
+    if mode in ['failure','write-failure','blocked']:
      assert after==before;assert await page.evaluate("async()=>{const s=await import('./src/storage/vault-store.js');return (await s.loadVault(await s.openVesperDb())).storageRevision;}")==revision
     elif mode=='conflict':assert after==newest
     else:
