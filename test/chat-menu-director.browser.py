@@ -82,9 +82,29 @@ async def run():
     await page.click('#chatMenuButton');await page.get_by_role('button',name='Export Backup',exact=True).click();await page.locator('#downloadBackupFile').wait_for();await page.click('#backupTransferClose')
     await page.click('#chatMenuButton');await page.locator('#chatMenu').get_by_role('button',name='My Personas',exact=True).click();await page.locator('#dataView').wait_for(state='visible');await page.click('#dataBackButton')
     assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth+1');assert not errors,errors
+    # Synthetic reproduction: established Valec bond, already asleep, and a prior bad response.
+    await page.evaluate("""async()=>{const s=await import('./src/storage/vault-store.js'),{emptyVault}=await import('./src/schema.js'),v=emptyVault();v.personas=[{id:'p',name:'Amanda',profile:{age:30,species:'Human'}}];v.characters=[{id:'x',name:'Valec Thorne',profile:{age:38,species:'Shifter',personality:'Controlled, observant, dryly humorous'}}];v.stories=[{id:'s',title:'Synthetic Valec sleep',personaId:'p',characterIds:['x'],settings:{model:'synthetic/model'}}];v.chats=[{id:'c',storyId:'s'}];v.messages=[{id:'proof',storyId:'s',chatId:'c',role:'user',ordinal:0,text:'Amanda and Valec completed their mate bond.'},{id:'sleep',storyId:'s',chatId:'c',role:'assistant',ordinal:1,text:'Amanda and Valec were already asleep together.'},{id:'old-meta',storyId:'s',chatId:'c',role:'assistant',ordinal:2,text:'The story has reached a complete conclusion. No continuation is necessary.'}];v.milestones=[{id:'bond',storyId:'s',chatId:'c',type:'mated',participants:['p','x'],status:'confirmed',sourceMessageId:'proof',evidence:v.messages[0].text,verification:{verified:true,completed:true,verifiedBy:'user'}}];const db=await s.openVesperDb();await s.replaceVaultAtomic(db,v,{expectedRevision:(await s.loadVault(db)).storageRevision});}""")
+    await page.reload();await page.locator('#messageInput').wait_for()
+    await page.evaluate("""()=>{window.calls=[];window.reply='The story has reached a complete conclusion. No continuation is necessary.';window.fetch=async(url,options)=>{calls.push(JSON.parse(options.body));return {ok:true,json:async()=>({choices:[{message:{content:reply}}]})};};}""")
+    original=await page.evaluate(state);await page.fill('#messageInput','Preserved player draft')
+    await page.click('#chatMenuButton');await page.select_option('#directorAction','/skip sleep');await page.click('#directorTrigger');await page.wait_for_function("!document.querySelector('#sendButton').disabled")
+    assert await page.evaluate('calls.length')==1;assert 'story-ending commentary' in await page.locator('#status').inner_text()
+    rejected=await page.evaluate(state);assert rejected['messages']==original['messages'];assert rejected['milestones']==original['milestones'];assert await page.input_value('#messageInput')=='Preserved player draft'
+    assert 'already asleep' in (await page.evaluate('calls[0]'))['messages'][-1]['content']
+    await page.evaluate("reply='Morning light reached the room. Valec opened his eyes and listened to the quiet house.'")
+    await page.click('#chatMenuButton');await page.select_option('#directorAction','/skip sleep');await page.click('#directorTrigger');await page.wait_for_function("!document.querySelector('#sendButton').disabled")
+    continued=await page.evaluate(state);assert await page.evaluate('calls.length')==2;assert continued['messages'][:-1]==original['messages'];assert continued['milestones']==original['milestones'];assert 'Valec opened his eyes' in continued['messages'][-1]['text']
+    for key in original:
+     if key not in ['messages','usageEntries']:assert continued[key]==original[key],key
+    await page.reload();await page.locator('#messageInput').wait_for();assert (await page.evaluate(state))['messages']==continued['messages']
+    # Explicit completion is metadata; no provider request or storage write is allowed.
+    await page.evaluate("""async()=>{const s=await import('./src/storage/vault-store.js'),db=await s.openVesperDb(),v=await s.loadVault(db);v.stories[0].status='finished';await s.saveVaultAtomic(db,v);}""")
+    await page.reload();await page.locator('#messageInput').wait_for();await page.evaluate("()=>{window.calls=[];window.fetch=async()=>{calls.push('unexpected');throw new Error('Provider must not run');};}")
+    finished=await page.evaluate(state);await page.fill('#messageInput','Unsent finished-story draft');await page.click('#chatMenuButton');await page.click('#directorTrigger')
+    assert 'explicitly marked finished' in await page.locator('#directorStatus').inner_text();assert await page.evaluate('calls.length')==0;assert await page.evaluate(state)==finished;assert await page.input_value('#messageInput')=='Unsent finished-story draft';await page.click('#chatMenuClose')
     await page.screenshot(path='/tmp/menu-director-'+device.replace(' ','_')+'.png')
     await page.click('#chatMenuButton');await page.screenshot(path='/tmp/menu-director-drawer-'+device.replace(' ','_')+'.png');await page.click('#chatMenuClose')
-    print(json.dumps({'device':device,'drawer':True,'explicitRequestsOnly':True,'myTurnDraftOnly':True,'perStoryIndexedDB':True,'backupRoundTrip':True,'reducedViewportControls':True,'errors':errors,'paidRequests':0}),flush=True);await ctx.close()
+    print(json.dumps({'device':device,'drawer':True,'explicitRequestsOnly':True,'myTurnDraftOnly':True,'perStoryIndexedDB':True,'backupRoundTrip':True,'reducedViewportControls':True,'errors':errors,'paidRequests':0,'sleepingValecContinuation':True,'metaReplyRejected':True,'explicitFinishedStateProtected':True}),flush=True);await ctx.close()
    await browser.close()
  finally:server.shutdown()
 asyncio.run(run())

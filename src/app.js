@@ -1,4 +1,4 @@
-import {parseDirectorCommand,directorPreferences,updateDirectorPreferences,directorInstruction} from "./chat/director.js";
+import {assertDirectorStoryOpen,parseDirectorCommand,directorPreferences,updateDirectorPreferences,directorInstruction} from "./chat/director.js";
 import {mountChatMenu,bindComposerViewport} from "./ui/chat-menu.js";
 import {mountHistoricalMilestones} from './ui/historical-milestones.js';
 import {validateCanonicalMilestone} from './milestones/verifier.js';
@@ -437,6 +437,7 @@ async function generateToolReply({story,chat,instruction,label,director=false}){
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,director,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
+    if(director&&result.issueTypes?.includes("director-meta"))throw new Error("Director returned story-ending commentary instead of continuing. No reply was added. Retry only if you choose to.");
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>generateToolReply({story,chat,instruction,label,director})})){showStatus("Reply held for your boundary review.","notice");return;}throw new Error("Vesper couldn\'t produce a usable reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
@@ -451,6 +452,7 @@ async function runDirectorCommand(command,expectedStoryId=activeStoryId,onReady=
   const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId&&c.storyId===activeStoryId);if(!story||!chat)throw new Error("Select a story and conversation first.");
   const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok)throw new Error(runnable.reason);
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY))throw new Error("Add your OpenRouter API key in Settings first.");
+  assertDirectorStoryOpen(story);
   onReady();await generateToolReply({story,chat,instruction:directorInstruction(action,directorPreferences(story)),label:"Directing the scene…",director:true});return true;
 }
 async function generateMyTurnDraft(){

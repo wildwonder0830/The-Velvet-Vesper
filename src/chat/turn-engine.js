@@ -1,4 +1,4 @@
-import {validateDirectorOutput} from "./director.js";
+import {validateDirectorOutput,validateOocNarrativeOutput,directorContinuationRule,assertDirectorStoryOpen} from "./director.js";
 import { playerContinuity } from "./player-continuity.js";
 import { assemblePrompt } from "../prompt/prompt-assembler.js";
 import { sendOpenRouterChat } from "../provider/openrouter.js";
@@ -16,11 +16,14 @@ SOURCE-BACKED PLAYER HISTORY (chronological exact saved text; interpret in conte
 }
 const extractText=d=>d?.choices?.[0]?.message?.content||"";
 export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],storySettings={},oocInstruction="",opening=false,personaDraft=false,director=false,temperature,maxTokens,signal,repairAttempts=2}){
+ if(director)assertDirectorStoryOpen(vault.stories.find(s=>s.id===storyId));
  const assembled=assemblePrompt({vault,storyId,chatId,preferenceLines,storySettings,oocInstruction}),messages=toProviderMessages(assembled,personaDraft); if(personaDraft){messages.push(myTurnInstruction(vault,storyId,chatId,assembled));}else{messages.push({role:"system",content:"TURN ENDING RULE: End every roleplay reply on a complete sentence and a complete narrative beat. Never end on a fragment, dangling transition, teaser fragment, or truncated phrase. If the response approaches the token limit, conclude the current beat cleanly rather than beginning another sentence or paragraph."});} if(opening) messages.push({role:"system",content:"OPENING TURN: Begin the configured opening scene now. Follow openingScene facts exactly. Protect the user-controlled persona's meaningful agency: do not invent her voluntary choices, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential decisions. You MAY narrate involuntary, unavoidable, mechanically necessary, or explicitly configured opening events involving her when they do not imply a voluntary choice. If she could reasonably choose not to do something, leave that action to the user. OPENING COMPLETION RULE: The opening sequence may be as long as necessary to complete every configured openingScene fact, beat, reveal, character reaction, and required event properly. Completeness takes priority over brevity or ordinary turn length. Never abbreviate, summarize, rush, or prematurely stop an opening merely to meet a target length. Establish the setting and social tension, give each major model-controlled character a distinct beat and voice, and fully play through the configured opening incident before stopping. Use readable paragraph breaks. Stop at the first strong natural point where the persona can respond; do not say your move."});
+ if(oocInstruction.trim()&&!personaDraft)messages.push({role:"system",content:(director?directorContinuationRule:"OOC NARRATIVE CONTINUATION: A complete response beat is not the end of the story. Do not announce story completion or claim continuation is unnecessary merely because a scene is peaceful. Preserve protagonist agency and all established canon, limits and permissions.")+"\nCURRENT EXPLICIT REQUEST (within those protections): "+oocInstruction});
+ const validate=(options)=>{const result=validateModelOutput(options);if(oocInstruction.trim()&&!personaDraft){const issues=validateOocNarrativeOutput(options.text,{director});result.issues.push(...issues);if(issues.length)result.ok=false;}return result;};
  const first=await sendOpenRouterChat({model,messages:filterMemoryForModel(messages,vault.memoryEntries,storyId),temperature,maxTokens,signal});let text=extractText(first);
  let continuity={mateBond:Boolean(assembled.mateBondCanon)};
  const priorUserText=[...assembled.recentMessages].reverse().find(m=>m.role==="user")?.text||"";
- let validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:assembled.persona,characters:assembled.characters});
+ let validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:assembled.persona,characters:assembled.characters});
  const usage=[first.usage].filter(Boolean);
  if(director){if(!usage.length)usage.push({});const issues=validateDirectorOutput(text,assembled.persona);validation.issues.push(...issues);if(issues.length)validation.ok=false;
   // One explicit Director trigger authorizes one request, never automatic paid retries.
@@ -32,12 +35,12 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
    for(let attempt=0;attempt<repairAttempts;attempt++){
      const current=assemblePrompt({vault,storyId,chatId,preferenceLines,storySettings,oocInstruction});
      continuity={mateBond:Boolean(current.mateBondCanon)};
-     validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters});
+     validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters});
      const refreshed=toProviderMessages(current,personaDraft);
      const modeInstructions=personaDraft?[myTurnInstruction(vault,storyId,chatId,current)]:messages.slice(1+assembled.recentMessages.length);
      const repaired=await sendOpenRouterChat({model,messages:filterMemoryForModel([...refreshed,...modeInstructions,{role:"assistant",content:text},{role:"system",content:buildRepairInstruction(validation,{opening,personaDraft,persona:current.persona})}],vault.memoryEntries,storyId),temperature,maxTokens,signal});
      if(repaired.usage)usage.push(repaired.usage);
-     text=extractText(repaired);validation=validateModelOutput({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters});
+     text=extractText(repaired);validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters});
      if(validation.ok&&!validation.needsRepair)return {text,validation,usage,repaired:true,blocked:false};
    }
    return {text,blockedText:text,validation,usage,repaired:true,blocked:true,issueTypes:[...new Set((validation.issues||[]).map(x=>x.type))]};
