@@ -1,3 +1,4 @@
+import { prepareAssistantEdit, originalAssistantText } from "./chat/message-edit.js";
 import { createBackupFile, shareBackup, downloadBackupFile, readBackupFile, canShareBackup, isIOSBackupEnvironment } from "./backup/backup-transfer.js";
 import { createStoryPhone } from "./ui/story-phone.js";
 import { appendPhoneMessage, markPhoneThreadRead } from "./phone/phone-state.js";
@@ -651,6 +652,33 @@ function isOpeningMessage(message){
   const firstAssistant=vault.messages.filter(m=>m.chatId===message.chatId&&m.role==="assistant").sort((a,b)=>(a.ordinal??0)-(b.ordinal??0))[0];
   return firstAssistant?.id===message.id;
 }
+function editAssistantMessage(message,targetNode){
+  if($("assistantEditPanel"))return;
+  if(sending||phoneBusy){showStatus("Wait for the current request to finish before editing.","notice");return;}
+  storyScroller?.cancel();
+  const baseline=structuredClone(vault),revision=vault.storageRevision;
+  const panel=document.createElement("section");panel.className="modal-backdrop";panel.id="assistantEditPanel";
+  const card=document.createElement("div");card.className="settings-card";card.setAttribute("role","dialog");card.setAttribute("aria-modal","true");card.setAttribute("aria-labelledby","assistantEditTitle");
+  const title=document.createElement("h2");title.id="assistantEditTitle";title.textContent="Edit Vesper’s reply";
+  const label=document.createElement("label");label.textContent="Reply text";const field=document.createElement("textarea");field.id="assistantEditText";field.value=String(message.text||"");label.append(field);
+  const note=document.createElement("p");note.textContent="Your saved correction takes precedence in this conversation. Stale source-linked context will be withheld, not rewritten.";
+  const original=document.createElement("button");original.id="assistantEditOriginal";original.type="button";original.className="secondary";original.textContent="Load original version";original.hidden=originalAssistantText(message)===null;original.onclick=()=>{field.value=originalAssistantText(message);field.focus({preventScroll:true});};
+  const error=document.createElement("p");error.id="assistantEditError";error.setAttribute("role","alert");
+  const save=document.createElement("button");save.id="assistantEditSave";save.type="button";save.className="primary";save.textContent="Save changes";
+  const cancel=document.createElement("button");cancel.id="assistantEditCancel";cancel.type="button";cancel.className="secondary";cancel.textContent="Cancel";
+  const viewport=window.visualViewport;
+  const resize=()=>{if(!viewport)return;panel.style.top=`${viewport.offsetTop}px`;panel.style.bottom="auto";panel.style.height=`${viewport.height}px`;card.style.maxHeight=`${Math.max(120,viewport.height-36)}px`;field.style.height=`${Math.max(120,viewport.height*.4)}px`;};
+  const dispose=()=>{viewport?.removeEventListener("resize",resize);viewport?.removeEventListener("scroll",resize);panel.remove();};
+  viewport?.addEventListener("resize",resize);viewport?.addEventListener("scroll",resize);resize();
+  let saving=false,committed=false;const close=()=>{if(saving)return;dispose();};cancel.onclick=close;
+  panel.onkeydown=e=>{if(e.key==="Escape"){e.preventDefault();close();}if(e.key==="Tab"){const elements=[field,...(original.hidden?[]:[original]),save,cancel],first=elements[0],last=elements.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};
+  save.onclick=async()=>{if(saving)return;if(sending||phoneBusy){error.textContent="Wait for the current request to finish.";return;}try{
+    const next=prepareAssistantEdit(baseline,{messageId:message.id,storyId:message.storyId,chatId:message.chatId,text:field.value});if(!next){close();return;}
+    saving=true;save.disabled=true;cancel.disabled=true;original.disabled=true;
+    await saveVaultAtomic(db,next,{expectedRevision:revision});committed=true;vault=next;dispose();if(targetNode?.isConnected)renderMessage(targetNode,next.messages.find(m=>m.id===message.id));showStatus("Correction saved as authoritative for this conversation. Stale derived context is withheld; stored memories and milestones were not rewritten.","notice");
+  }catch(e){if(committed)showStatus("The edit was saved, but refreshing the view failed. Reload Vesper to see it.","error");else error.textContent=e?.message||"Could not save this edit. Saved data was not changed.";}finally{saving=false;save.disabled=false;cancel.disabled=false;original.disabled=false;}};
+  card.append(title,note,label,original,error,save,cancel);panel.append(card);document.body.append(panel);field.focus({preventScroll:true});
+}
 async function editUserMessage(message){
   if(sending){showStatus("Wait for Vesper to finish writing before editing.","notice");return;}
   const next=window.prompt("Edit your post",String(message.text||""));
@@ -741,7 +769,7 @@ function renderMessage(node,message){
     if(message.editedAt){const tag=document.createElement("small");tag.className="edited-tag";tag.textContent="edited";controls.append(tag);}
     node.append(controls);return;
   }
-  const controls=document.createElement("div");controls.className="message-controls assistant-controls";const regen=document.createElement("button");regen.type="button";regen.className="message-edit";regen.textContent="Regenerate";regen.onclick=()=>regenerateAssistantMessage(message);controls.append(regen);const del=document.createElement("button");del.type="button";del.className="message-edit";del.textContent="Delete";del.setAttribute("aria-label","Delete this post and later dependent posts");del.onclick=()=>deleteMessageBranch(message);controls.append(del);node.append(controls);
+  const controls=document.createElement("div");controls.className="message-controls assistant-controls";const edit=document.createElement("button");edit.type="button";edit.className="message-edit";edit.textContent="Edit";edit.setAttribute("aria-label","Edit this reply");edit.onclick=()=>editAssistantMessage(message,node);controls.append(edit);if(message.editedAt){const tag=document.createElement("small");tag.className="edited-tag";tag.textContent="edited";controls.append(tag);}const regen=document.createElement("button");regen.type="button";regen.className="message-edit";regen.textContent="Regenerate";regen.onclick=()=>regenerateAssistantMessage(message);controls.append(regen);const del=document.createElement("button");del.type="button";del.className="message-edit";del.textContent="Delete";del.setAttribute("aria-label","Delete this post and later dependent posts");del.onclick=()=>deleteMessageBranch(message);controls.append(del);node.append(controls);
 }
 let storyScroller;
 function bindMessageScroller(){

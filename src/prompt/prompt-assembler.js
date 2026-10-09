@@ -1,3 +1,4 @@
+import { authoritativeReplyContext, projectEditedContext } from "../chat/message-edit.js";
 import { buildPhoneContext } from "../phone/phone-context.js";
 import { buildStoryContext } from "./context-builder.js";
 import { compileRpPolicy } from "./rp-policy.js";
@@ -11,6 +12,8 @@ import { milestoneSupportsRelationship } from "../milestones/verifier.js";
 import { normalizeIntimacyStyle, compileIntimacyStyle } from "../settings/intimacy-style.js";
 
 export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], storySettings = {}, oocInstruction = "", maxRecentMessages = 40 }) {
+  const edits=authoritativeReplyContext(vault,storyId,chatId);
+  vault=projectEditedContext(vault);
   const context=buildStoryContext(vault,storyId,chatId);
   const intimacyStyle=normalizeIntimacyStyle(Object.hasOwn(storySettings,"intimacyStyle")?storySettings.intimacyStyle:context.story?.settings?.intimacyStyle);
   const chat=(vault.chats||[]).find(c=>c.id===chatId&&c.storyId===storyId);
@@ -20,10 +23,11 @@ export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], s
   const validatedBond=context.milestones.find(m=>m.type==="mated"&&(relationship?milestoneSupportsRelationship(m,relationship):m.participants.includes(context.persona?.id)));
   const mateBond=relationship?.stage==="mated"||Boolean(validatedBond);
   const continuity=continuityPrompt({relationship,milestones:context.milestones,facts:context.memory.filter(m=>m.kind==="canon"),knowledge:context.knowledge,vault,storyId,chatId});
-  const assembled={precedence:["hardRules","oocInstruction","sexualRedLines","storySettings","agencyAndRpPolicy","canonAndContinuity","mateBondCanon","sceneState","characters","relationship","lore","memory","recentMessages","style"],
+  const assembled={precedence:["hardRules","oocInstruction","sexualRedLines","authoritativeEdits","storySettings","agencyAndRpPolicy","canonAndContinuity","mateBondCanon","sceneState","characters","relationship","lore","memory","recentMessages","style"],
     hardRules:context.hardRules,story:Object.fromEntries(Object.entries(context.story).filter(([key])=>key!=="phone")),oocInstruction:String(oocInstruction||"").trim(),sexualRedLines:compileSexualRedLines(),greenLines:compileGreenLines(preferenceLines,storySettings),storySettings,agencyAndRpPolicy:compileRpPolicy(),canonAndContinuity:continuity,mateBondCanon:mateBond?{...compileMateBondPrompt(),participantIds:validatedBond?.participants||relationship?.participantIds||[]}:null,sceneState:context.sceneState,persona:context.persona,characters:context.characters,relationship,milestones:context.milestones,lore:context.lore,memory:context.memory,recentMessages};
   const phoneContinuity=buildPhoneContext(vault,{storyId,chatId,respondingCharacterIds:context.characters.map(c=>c.id)});
   if(phoneContinuity.length)assembled.phoneContinuity=phoneContinuity;
+  if(edits)assembled.authoritativeEdits=edits;
   assembled.intimacyStyle=intimacyStyle;
   assembled.intimacyStyleDirective=compileIntimacyStyle(intimacyStyle);
   return filterMemoryForModel(assembled,vault.memoryEntries,storyId);

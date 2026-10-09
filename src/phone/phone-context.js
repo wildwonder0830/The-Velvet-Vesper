@@ -1,3 +1,4 @@
+import { projectEditedContext, assistantTextVersions } from "../chat/message-edit.js";
 import {extendedCandidateIndex} from './phone-history-parser.js';
 import { filterMemoryForModel } from '../memory/memory-manager.js';
 import { canonicalMilestones, milestoneDerivedRecordIsCanonical } from '../milestones/verifier.js';
@@ -29,6 +30,7 @@ export function phoneMessageVisible(vault, message, respondingCharacterIds,candi
   return filtered.length === 1 && filtered[0].text === message.text;
 }
 export function buildPhoneContext(vault,{storyId,chatId,respondingCharacterIds,threadId,maxMessages=40}) {
+  vault=projectEditedContext(vault);
   const story=vault.stories.find(s=>s.id===storyId);
   if (!story || !vault.chats.some(c=>c.id===chatId&&c.storyId===storyId)) return [];
   const cast=new Set([story.primaryCharacterId,...(story.characterIds||[])].filter(Boolean));
@@ -48,7 +50,7 @@ export function reconcilePhoneDependencies(vault,{historicalBase=vault}={}) {
   for(const s of next.stories){const p=s.phone,base=historicalBase.stories.find(x=>x.id===s.id)?.phone;if(!p||!base)continue;
     for(const [field,label] of [['historicalContacts','canonicalName'],['historicalAliases','label']]){
       if(base[field]===undefined)continue;
-      p[field]=base[field].map(record=>({...structuredClone(record),sourceMessageIds:record.sourceMessageIds.filter(id=>next.messages.some(m=>m.id===id&&m.storyId===s.id&&m.text.toLocaleLowerCase().includes(record[label].toLocaleLowerCase())))})).filter(record=>record.sourceMessageIds.length);
+      p[field]=base[field].map(record=>({...structuredClone(record),sourceMessageIds:record.sourceMessageIds.filter(id=>next.messages.some(m=>m.id===id&&m.storyId===s.id&&assistantTextVersions(m).some(text=>text.toLocaleLowerCase().includes(record[label].toLocaleLowerCase()))))})).filter(record=>record.sourceMessageIds.length);
     }
   }
   for (const s of next.stories) {const candidateIndex=s.phone?.threads.some(t=>t.messages.some(m=>m.recovery?.version===2))?extendedCandidateIndex(next,s.id,{includeExcluded:true}):null;for (const t of s.phone?.threads||[]) {

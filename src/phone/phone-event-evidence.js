@@ -49,10 +49,19 @@ export function eventSourceCurrent(message,vault,{includeExcluded=false}={}) {
   if(!story||story.personaId!==c.personaId||!vault.chats.some(s=>s.id===message.chatId&&s.storyId===story.id)||!c.audienceIds.includes(c.senderId)||!c.audienceIds.includes(c.personaId))return false;
   const known=new Set([story.personaId,story.primaryCharacterId,...story.characterIds||[],...(story.phone?.historicalContacts||[]).map(s=>s.id)]);
   if(c.audienceIds.some(id=>!known.has(id)))return false;
-  const sources=new Map(vault.messages.map(s=>[s.id,s]));
-  for(const check of c.sourceChecks){const source=sources.get(check.id);if(!source||source.storyId!==message.storyId||source.chatId!==message.chatId||typeof source.text!=='string'||sha256(source.text)!==check.sha256||(!includeExcluded&&excluded(source)))return false;}
-  for(const span of e.representations){const source=sources.get(span.sourceMessageId);if(!source||source.text.slice(span.start,span.end)!==e.text||span.storyId!==message.storyId||span.chatId!==message.chatId||!equal(span.audienceIds,e.audienceIds)||span.senderId!==e.senderId||span.conversationId!==e.conversationId)return false;}
   const thread=story.phone?.threads.find(t=>t.messages?.some(m=>m.id===message.id));
+  const sources=new Map(vault.messages.map(s=>[s.id,s]));
+  for(const check of c.sourceChecks){
+   const source=sources.get(check.id);if(!source||source.storyId!==message.storyId||source.chatId!==message.chatId||typeof source.text!=='string'||(!includeExcluded&&excluded(source)))return false;
+   // Stored historical proof still requires the exact approved SHA-256 source.
+   // Recovery snapshots are admitted only for archive/backup validation; the
+   // model-facing default always requires the current authoritative text.
+   const versions=includeExcluded&&thread&&source.role==='assistant'&&source.editAuthority?.version===1&&Array.isArray(source.editHistory)?[source.text,...source.editHistory.map(version=>version?.text).filter(text=>typeof text==='string')]:[source.text];
+   const matching=versions.find(text=>sha256(text)===check.sha256);
+   if(matching===undefined)return false;
+   sources.set(source.id,{...source,text:matching});
+  }
+  for(const span of e.representations){const source=sources.get(span.sourceMessageId);if(!source||source.text.slice(span.start,span.end)!==e.text||span.storyId!==message.storyId||span.chatId!==message.chatId||!equal(span.audienceIds,e.audienceIds)||span.senderId!==e.senderId||span.conversationId!==e.conversationId)return false;}
   if(thread&&(thread.kind!==c.kind||!thread.historyConversationKeys?.includes(e.conversationId)||thread.kind==='private'&&!equal([...thread.participantIds].sort(),c.audienceIds.filter(id=>id!==c.personaId).sort())))return false;
   return true;
  }catch{return false;}

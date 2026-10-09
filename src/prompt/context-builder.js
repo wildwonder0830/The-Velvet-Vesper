@@ -1,3 +1,4 @@
+import { projectEditedContext } from "../chat/message-edit.js";
 import { applyHardRuleSanitizers, findHardRuleViolations, VESPER_HARD_RULES } from "../rules/hard-rules.js";
 import { activeMemory, filterMemoryForModel } from "../memory/memory-manager.js";
 import { canonicalMilestones, milestoneDerivedRecordIsCanonical } from "../milestones/verifier.js";
@@ -41,6 +42,7 @@ function relationshipSourcesVisible(record, vault, storyId, chatId) {
 }
 
 export function buildStoryContext(vault, storyId, chatId = null) {
+  vault = projectEditedContext(vault);
   const story = byId(vault.stories, storyId);
   if (!story) throw new Error("Story not found.");
   if (chatId != null && !(vault.chats || []).some(c => c.id === chatId && c.storyId === storyId)) {

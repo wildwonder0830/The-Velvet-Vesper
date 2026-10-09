@@ -1,3 +1,4 @@
+import { assistantTextVersions, historicalReplyVault } from "../chat/message-edit.js";
 import {eventSourceCurrent} from './phone-event-evidence.js';
 import {extendedCandidateIndex} from './phone-history-parser.js';
 import {historyIdentities,proposedIdentity,historyContactId} from './phone-history-contacts.js';
@@ -95,6 +96,11 @@ export function orderedPhoneMessages(thread) {
  return [...recovered,...thread.messages.filter(m=>!m.recovery)];
 }
 export function recoveredSourceCurrent(message,vault,{includeExcluded=false,candidateIndex}={}) {
+ if(recoveredSourceMatches(message,vault,{includeExcluded,candidateIndex}))return true;
+ const historical=includeExcluded?historicalReplyVault(vault,message.recovery?.importedAt):vault;
+ return historical!==vault&&recoveredSourceMatches(message,historical,{includeExcluded});
+}
+function recoveredSourceMatches(message,vault,{includeExcluded=false,candidateIndex}={}) {
  if(message.recovery?.version===3)return eventSourceCurrent(message,vault,{includeExcluded});
  if(message.recovery?.version===2){const c=(candidateIndex||extendedCandidateIndex(vault,message.storyId,{includeExcluded})).get(message.recovery.key);return Boolean(c&&c.text===message.text&&c.chatId===message.chatId&&JSON.stringify(c.participantLabels)===JSON.stringify(message.recovery.participantLabels)&&c.senderLabel===message.recovery.senderLabel&&c.conversationKey===message.recovery.conversationKey&&JSON.stringify(c.sourceMessageIds)===JSON.stringify(message.sourceMessageIds)&&c.timestampText===message.recovery.timestampText);}
  if(!message.recovery)return true;
@@ -109,6 +115,13 @@ export function phoneTimestampInstant(s) {
  return year>0&&month>=1&&month<=12&&day>=1&&day<=days[month-1]&&hour<=23&&minute<=59&&second<=59;
 }
 function validateRecovery(m,vault,known,candidateIndex) {
+ try{return validateRecoveryVersion(m,vault,known,candidateIndex);}catch(error){
+  const historical=historicalReplyVault(vault,m.recovery?.importedAt);if(historical===vault)throw error;
+  const index=m.recovery?.version===2?extendedCandidateIndex(historical,m.storyId,{includeExcluded:true}):undefined;
+  return validateRecoveryVersion(m,historical,known,index);
+ }
+}
+function validateRecoveryVersion(m,vault,known,candidateIndex) {
  if(m.recovery?.version===3){if(!eventSourceCurrent(m,vault,{includeExcluded:true}))fail('Invalid verified event evidence.');return;}
  if(m.recovery?.version===2){validateExtendedRecovery(m,vault,known,candidateIndex);return;}
  const r=m.recovery,source=vault.messages.find(s=>s.id===r?.sourceMessageId);
@@ -171,10 +184,10 @@ function validateHistoricalContacts(story,vault,known) {
  if(!Array.isArray(contacts)||!Array.isArray(aliases))fail('Invalid historical contacts or aliases.');
  const idsSeen=new Set(),namesSeen=new Set();
  for(const c of contacts){if(!object(c)||!text(c.id,500)||c.id!==historyContactId(story.id,c.canonicalName||'')||!text(c.canonicalName)||c.archiveOnly!==true||idsSeen.has(c.id)||namesSeen.has(c.canonicalName.toLocaleLowerCase())||!ids(c.sourceMessageIds)||!c.sourceMessageIds.length)fail('Invalid historical contact identity.');idsSeen.add(c.id);namesSeen.add(c.canonicalName.toLocaleLowerCase());
-  if(c.sourceMessageIds.some(id=>{const source=vault.messages.find(m=>m.id===id);return !source||source.storyId!==story.id||!source.text.toLocaleLowerCase().includes(c.canonicalName.toLocaleLowerCase());}))fail('Historical contact lacks source evidence.');
+  if(c.sourceMessageIds.some(id=>{const source=vault.messages.find(m=>m.id===id);return !source||source.storyId!==story.id||!assistantTextVersions(source).some(text=>text.toLocaleLowerCase().includes(c.canonicalName.toLocaleLowerCase()));}))fail('Historical contact lacks source evidence.');
  }
  const seen=new Set();for(const a of aliases){if(!object(a)||!text(a.label)||seen.has(a.label.toLocaleLowerCase())||!known.has(a.id)||!ids(a.sourceMessageIds)||!a.sourceMessageIds.length)fail('Invalid historical contact alias.');seen.add(a.label.toLocaleLowerCase());
-  if(a.sourceMessageIds.some(id=>{const source=vault.messages.find(m=>m.id===id);return !source||source.storyId!==story.id||!source.text.toLocaleLowerCase().includes(a.label.toLocaleLowerCase());}))fail('Historical alias lacks source evidence.');
+  if(a.sourceMessageIds.some(id=>{const source=vault.messages.find(m=>m.id===id);return !source||source.storyId!==story.id||!assistantTextVersions(source).some(text=>text.toLocaleLowerCase().includes(a.label.toLocaleLowerCase()));}))fail('Historical alias lacks source evidence.');
   const suggested=proposedIdentity(vault,story.id,a.label);if(suggested&&suggested!==a.id)fail('Historical alias contradicts the source identity.');
  }
 }
