@@ -1,3 +1,5 @@
+import {parseDirectorCommand,directorPreferences,updateDirectorPreferences,directorInstruction} from "./chat/director.js";
+import {mountChatMenu,bindComposerViewport} from "./ui/chat-menu.js";
 import {mountHistoricalMilestones} from './ui/historical-milestones.js';
 import {validateCanonicalMilestone} from './milestones/verifier.js';
 import {activePersonaId,storyPersonaIds} from './personas/persona-store.js';
@@ -188,7 +190,9 @@ async function boot() {
   });
   storyPhone=createStoryPhone({getSnapshot:()=>({vault,revision:vault.storageRevision,storyId:activeStoryId,chatId:activeChatId,storyVisible:!$("chatView").hidden}),commitCandidate:commitPhoneCandidate,sendPhoneMessage,cancelStoryScroll:()=>storyScroller?.cancel(),isBusy:()=>sending||phoneBusy,onError:message=>showStatus("Phone: "+message,"error")});
   personasUi=mountPersonas({host:$("dataList"),getSnapshot:()=>({vault,storyId:activeStoryId}),commit:async candidate=>{await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;},isBusy:()=>sending||phoneBusy||importingBackup,onError:message=>showStatus(message,"error")});
-  bindUi(); render();
+  bindUi();
+  mountChatMenu({getContext:()=>{const story=vault.stories.find(s=>s.id===activeStoryId);return {storyId:story?.id,preferences:directorPreferences(story),characters:vault.characters.filter(c=>[story?.primaryCharacterId,...(story?.characterIds||[])].includes(c.id))};},onPreferences:async(storyId,preferences)=>{if(sending||phoneBusy||importingBackup)throw new Error("Wait until the current operation finishes.");const candidate=updateDirectorPreferences(vault,storyId,preferences);await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;},onTrigger:runDirectorCommand,onError:message=>showStatus(message,"error"),cancelScroll:()=>storyScroller?.cancel()});
+  bindComposerViewport({});render();
   if(!hadUserData)showStatus("Vesper loaded an empty local vault. No automatic write was made.","error");
 }
 function bindUi() {
@@ -423,21 +427,31 @@ async function runStoryTool(kind){
   const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);if(!story||!chat)return;
   await generateToolReply({story,chat,instruction,label:kind==="continue"?"Continuing…":"Elaborating…"});
 }
-async function generateToolReply({story,chat,instruction,label}){
+async function generateToolReply({story,chat,instruction,label,director=false}){
+  if(sending||phoneBusy||importingBackup||$("assistantEditPanel"))return;
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
   sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus(label,"working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,director,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
-    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>generateToolReply({story,chat,instruction,label})})){showStatus("Reply held for your boundary review.","notice");return;}throw new Error("Vesper couldn\'t produce a usable reply.");}
+    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>generateToolReply({story,chat,instruction,label,director})})){showStatus("Reply held for your boundary review.","notice");return;}throw new Error("Vesper couldn\'t produce a usable reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("","clear");
   }catch(error){showStatus(error?.name==="AbortError"?"Generation stopped.":`Generation failed: ${error.message}`,"error");}
   finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
+}
+async function runDirectorCommand(command,expectedStoryId=activeStoryId,onReady=()=>{}){
+  if(sending||phoneBusy||importingBackup||$("assistantEditPanel"))throw new Error("Wait until the current operation finishes.");
+  if(expectedStoryId!==activeStoryId)throw new Error("The active story changed. Reopen the menu before triggering Director.");
+  const action=parseDirectorCommand(command);if(!action)return false;
+  const story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId&&c.storyId===activeStoryId);if(!story||!chat)throw new Error("Select a story and conversation first.");
+  const runnable=storyIsRunnable(vault,story.id);if(!runnable.ok)throw new Error(runnable.reason);
+  if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY))throw new Error("Add your OpenRouter API key in Settings first.");
+  onReady();await generateToolReply({story,chat,instruction:directorInstruction(action,directorPreferences(story)),label:"Directing the scene…",director:true});return true;
 }
 async function generateMyTurnDraft(){
   if(sending)return;
@@ -560,6 +574,8 @@ async function sendTurn(event){
   const composerDraft=$("messageInput").value;
   const text=composerDraft.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
   if(!text||!story||!chat)return;
+  try{const action=parseDirectorCommand(text);if(action){await runDirectorCommand(text,story.id,()=>{if($("messageInput").value===composerDraft)$("messageInput").value="";});return;}}
+  catch(error){showStatus(error.message,"error");return;}
   const commandMatch=text.match(/^\/(ooc|continue|elaborate)\b\s*([\s\S]*)$/i);
   if(commandMatch){
     $("messageInput").value="";

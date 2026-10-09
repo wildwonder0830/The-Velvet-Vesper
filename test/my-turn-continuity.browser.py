@@ -26,6 +26,7 @@ async def run():
    await page.locator('[aria-label="Edit this reply"]').first.click();await page.fill('#assistantEditText','Corrected synthetic reply.');await page.click('#assistantEditSave');await page.locator('#assistantEditPanel').wait_for(state='detached')
    assert await page.locator('#messageInput').input_value()=='Synthetic unfinished draft\n';assert await page.evaluate('calls.length')==0
    for tool in ['continueButton','elaborateButton']:
+    await page.click('#chatMenuButton')
     await page.locator('#'+tool).evaluate("el=>el.scrollIntoView({block:'center'})");await page.click('#'+tool);await page.wait_for_function("!document.querySelector('#sendButton').disabled")
     assert await page.locator('#messageInput').input_value()=='Synthetic unfinished draft\n';assert not any(m['role']=='user' and m['text'].startswith('Synthetic unfinished draft') for m in (await page.evaluate(state))['messages'])
    await page.locator('#sendButton').evaluate("el=>el.scrollIntoView({block:'center'})");await page.dblclick('#sendButton');await page.wait_for_function("!document.querySelector('#sendButton').disabled")

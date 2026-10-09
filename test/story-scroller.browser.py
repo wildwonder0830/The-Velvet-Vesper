@@ -15,7 +15,7 @@ async def metrics(page):
       return {mobile,viewport:innerHeight,documentHeight:document.documentElement.scrollHeight,windowY:scrollY,
         paneHeight:s.clientHeight,paneTop:s.scrollTop,paneBottomGap:s.scrollHeight-s.scrollTop-s.clientHeight,
         replyStart:mobile?last.getBoundingClientRect().top-bar.bottom:last.getBoundingClientRect().top-s.getBoundingClientRect().top,
-        latestBottomGap:nav.top-last.getBoundingClientRect().bottom,navBottom:nav.bottom,
+        latestBottomGap:document.getElementById('composer').getBoundingClientRect().top-last.getBoundingClientRect().bottom,navBottom:nav.bottom,
         storyHeaderBottom:document.querySelector('.storybar').getBoundingClientRect().bottom,
         composerTop:document.getElementById('composer').getBoundingClientRect().top,
         userBackground:getComputedStyle(s.querySelector('.user')).backgroundImage};
@@ -23,7 +23,7 @@ async def metrics(page):
 def assert_latest(m):
     if m['mobile']:
         assert m['windowY']>0 and abs(m['latestBottomGap']-16)<3, m
-        assert m['storyHeaderBottom']<0 and m['composerTop']>=m['viewport']-46, m
+        assert m['storyHeaderBottom']<0 and 0<m['composerTop']<m['viewport']-46, m
         assert abs(m['navBottom']-m['viewport'])<2, m
     else:
         assert m['windowY']==0 and m['documentHeight']<=m['viewport']+1 and m['paneBottomGap']<2, m
@@ -45,7 +45,7 @@ async def run():
             await page.locator('#messageInput').scroll_into_view_if_needed()
             await page.fill('#messageInput','Unsent synthetic draft.')
             if mobile:await page.locator('#scrollBottomButton').wait_for(state='hidden')
-            assert await page.locator('#continueButton').is_visible()
+            await page.click('#chatMenuButton');assert await page.locator('#continueButton').is_visible();await page.click('#chatMenuClose')
             await page.click('#memoryNavButton');await page.click('#storyNavButton');await page.wait_for_timeout(550)
             assert_latest(await metrics(page));assert await page.input_value('#messageInput')=='Unsent synthetic draft.'
             assert await state(page)==baseline
@@ -82,7 +82,7 @@ async def run():
             after=await metrics(page)
             assert abs((after['windowY'] if mobile else after['paneTop'])-(before['windowY'] if mobile else before['paneTop']))<2
             await page.click('#scrollBottomButton')
-            await page.wait_for_function("""()=>{const s=document.getElementById('messages');return matchMedia('(max-width: 799px), (hover: none) and (pointer: coarse)').matches?Math.abs(document.querySelector('.bottom-nav').getBoundingClientRect().top-s.lastElementChild.getBoundingClientRect().bottom-16)<3:s.scrollHeight-s.scrollTop-s.clientHeight<2;}""")
+            await page.wait_for_function("""()=>{const s=document.getElementById('messages');return matchMedia('(max-width: 799px), (hover: none) and (pointer: coarse)').matches?Math.abs(document.getElementById('composer').getBoundingClientRect().top-s.lastElementChild.getBoundingClientRect().bottom-16)<3:s.scrollHeight-s.scrollTop-s.clientHeight<2;}""")
             assert_latest(await metrics(page))
             # Short replies still start below the top bar, including tall iPad viewports.
             await page.set_viewport_size(vp);await ctx.unroute('https://openrouter.ai/**',provider)

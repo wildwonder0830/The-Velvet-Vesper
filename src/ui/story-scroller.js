@@ -9,15 +9,15 @@ export function createStoryScroller({scroller,button,shell,window:win=window}) {
     const height=win.visualViewport?.height||win.innerHeight;
     const bar=win.document.querySelector('.topbar')?.getBoundingClientRect();
     const nav=win.document.querySelector('.bottom-nav')?.getBoundingClientRect();
-    const bottom=offset+height;
+    const composer=win.document.querySelector('.story-open #composer')?.getBoundingClientRect();
+    const bottom=composer&&composer.top>offset&&composer.top<offset+height?composer.top:offset+height;
     return {top:Math.max(offset,bar?.bottom||0)+16,bottom:nav&&nav.top<bottom&&nav.bottom>offset?Math.min(bottom,nav.top)-16:bottom-16};
   }
   function updateButton(){
     if(!button)return;
     if(isMobileStoryLayout(win)){
       const last=scroller.lastElementChild,bounds=visiblePage();
-      const composer=win.document.querySelector('#composer')?.getBoundingClientRect();
-      const writing=composer&&composer.top<bounds.bottom&&composer.bottom>bounds.top;
+      const writing=win.document.activeElement?.id==='messageInput';
       button.hidden=Boolean(writing)||!last||Math.abs(last.getBoundingClientRect().bottom-bounds.bottom)<80;
     }else button.hidden=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
   }
