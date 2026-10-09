@@ -1,3 +1,6 @@
+import {activePersonaId,storyPersonaIds} from './personas/persona-store.js';
+import {mountPersonas} from './ui/personas.js';
+import {scanMilestoneEvents,confirmMilestoneEvent,milestonePresentation} from './milestones/events.js';
 import { messageSpeakerLabel } from "./ui/message-speaker.js";
 import { prepareAssistantEdit, originalAssistantText } from "./chat/message-edit.js";
 import { createBackupFile, shareBackup, downloadBackupFile, readBackupFile, canShareBackup, isIOSBackupEnvironment } from "./backup/backup-transfer.js";
@@ -31,7 +34,13 @@ let settingsFormSnapshot="";
 let settingsModelSnapshot="",settingsModelFormSnapshot="";
 const modelIndependentSignature=()=>JSON.stringify(["temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
 const settingsFormSignature=()=>JSON.stringify(["modelName","temperatureSetting","maxTokensSetting","intimacyPacing","requirePlotAfterSex","cncToggle"].map(id=>{const el=$(id);return el?.type==="checkbox"?el.checked:el?.value;}));
-let storyPhone,phoneBusy=false;
+let storyPhone,phoneBusy=false,personasUi,milestoneBaseline=new Set();
+async function saveAppVault(database,candidate,options){
+ const ids=candidate.messages.filter(m=>!milestoneBaseline.has(m.id)).map(m=>m.id);
+ const next=importingBackup?candidate:scanMilestoneEvents(candidate,ids);
+ const saved=await saveVaultAtomic(database,next,{expectedRevision:candidate.storageRevision,...options});
+ Object.assign(candidate,saved);Object.defineProperty(candidate,"storageRevision",{value:saved.storageRevision,writable:true,configurable:true,enumerable:false});milestoneBaseline=new Set(saved.messages.map(m=>m.id));return saved;
+}
 let db, vault, preparedImport = null, activeStoryId = null, activeChatId = null, pendingDeleteStoryId = null, pendingBlockedReview = null, sending = false, retryMessageId = null, retryOpeningStoryId = null, activeGenerationController = null;
 const LAST_TAB_KEY="vesper.ui.lastTab";
 const LAST_STORY_KEY="vesper.ui.lastStoryId";
@@ -69,7 +78,7 @@ function reconcilePhoneRecords(){
 }
 async function commitPhoneCandidate(candidate,expectedRevision){
   candidate.updatedAt=new Date().toISOString();
-  await saveVaultAtomic(db,candidate,{expectedRevision});
+  await saveAppVault(db,candidate,{expectedRevision});
   vault=candidate;renderQueryMeter();storyPhone?.refresh();
 }
 async function sendPhoneMessage({storyId,threadId,text,action,onSubmitted,isViewed}){
@@ -81,7 +90,7 @@ async function sendPhoneMessage({storyId,threadId,text,action,onSubmitted,isView
   const model=story.settings?.model||localStorage.getItem("vesper.model")||DEFAULT_OPENROUTER_MODEL;
   phoneBusy=true;
   try{
-    let candidate=action==="send"?appendPhoneMessage(vault,storyId,threadId,{senderType:"persona",senderId:story.personaId,text:text.trim()}):structuredClone(vault);
+    let candidate=action==="send"?appendPhoneMessage(vault,storyId,threadId,{senderType:"persona",senderId:activePersonaId(story),text:text.trim()}):structuredClone(vault);
     const entry=recordUsage({storyId,chatId:thread.chatId,model});candidate.usageEntries.push(entry);
     await commitPhoneCandidate(candidate,vault.storageRevision);onSubmitted?.();
     const requestVault=structuredClone(vault),revision=vault.storageRevision;
@@ -106,10 +115,10 @@ async function sendPhoneMessage({storyId,threadId,text,action,onSubmitted,isView
 function applyVenomousAssistantRole(){
   let changed=false;
   for(const story of vault.stories||[]){
-    if(story.title!=="Venomous Devotion")continue;
+    if(story.title!=="Venomous Devotion"||story.personaBinding)continue;
     const valec=(vault.characters||[]).find(c=>c.storyId===story.id&&c.name==="Valec Thorne");
     if(!valec)continue;
-    const persona=(vault.personas||[]).find(p=>p.id===story.personaId);
+    const persona=(vault.personas||[]).find(p=>p.id===activePersonaId(story));
     if(persona){
       persona.profile={...(persona.profile||{}),work:"Valec Thorne's personal assistant and executive aide inside the elite supernatural command organization. She manages his schedule, communications, files, access, and day-to-day command logistics while concealing that she is a prey-species rabbit shifter.",onlineUsername:"LILBUNNYBBY",onlineHistory:"For months she has had an emotionally intimate and explicitly sexual relationship through an anonymous shifter app as LILBUNNYBBY with a man she knows only as nobunnyonmymenu. She does not know he is Valec Thorne."};
       changed=true;
@@ -164,26 +173,31 @@ function vaultHasUserData(v){
   return Boolean((v?.stories||[]).length||(v?.chats||[]).length||(v?.messages||[]).length||(v?.usageEntries||[]).length||(v?.personas||[]).length||(v?.characters||[]).length);
 }
 async function boot() {
-  db = await openVesperDb(); vault = await loadVault(db);
+  db = await openVesperDb(); vault = await loadVault(db);milestoneBaseline=new Set(vault.messages.map(m=>m.id));
   const hadUserData=vaultHasUserData(vault);
   const changed=ensurePreferenceLines()||applyVenomousAssistantRole();
-  if(changed&&hadUserData)await saveVaultAtomic(db,vault);
-  const milestoneNotifications=mountMilestoneNotifications();
+  if(changed&&hadUserData)await saveAppVault(db,vault);
+  const milestoneNotifications=mountMilestoneNotifications(document,{getContext:()=>({storyId:activeStoryId,chatId:activeChatId}),getVault:()=>vault});
   milestoneNotifications.baseline(vault);
   subscribeVaultSaves(event=>{
     if(event.dbName!==db.name)return;
-    if(event.kind==="replace" || importingBackup)milestoneNotifications.baseline(event.vault);
+    if(event.kind==="replace" || importingBackup){milestoneBaseline=new Set(event.vault.messages.map(m=>m.id));milestoneNotifications.baseline(event.vault);}
     else milestoneNotifications.observe(event.vault);
   });
   storyPhone=createStoryPhone({getSnapshot:()=>({vault,revision:vault.storageRevision,storyId:activeStoryId,chatId:activeChatId,storyVisible:!$("chatView").hidden}),commitCandidate:commitPhoneCandidate,sendPhoneMessage,cancelStoryScroll:()=>storyScroller?.cancel(),isBusy:()=>sending||phoneBusy,onError:message=>showStatus("Phone: "+message,"error")});
+  personasUi=mountPersonas({host:$("dataList"),getSnapshot:()=>({vault,storyId:activeStoryId}),commit:async candidate=>{await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;},isBusy:()=>sending||phoneBusy||importingBackup,onError:message=>showStatus(message,"error")});
   bindUi(); render();
   if(!hadUserData)showStatus("Vesper loaded an empty local vault. No automatic write was made.","error");
 }
 function bindUi() {
+  $("managePersonasButton").onclick=()=>{$("settingsPanel").hidden=true;showDataView("personas");personasUi.open();};
+  $("personasButton").onclick=()=>{showDataView("personas");personasUi.open();};
   const on=(id,event,handler)=>{const el=$(id);if(el)el.addEventListener(event,handler);};
   on("importButton","click",()=>{const input=$("importFile");input.value="";input.click();}); on("importFile","change",handleImportFile); on("relationshipPill","click",showRelationshipStatus); on("libraryNavButton","click",showLibrary); on("storyNavButton","click",showActiveStory); on("memoryNavButton","click",()=>showDataView("memory")); on("milestonesNavButton","click",()=>showDataView("milestones")); on("dataBackButton","click",showActiveStory);
-  $("newStoryButton").onclick=openStorySetup; $("composer").onsubmit=sendTurn;
-  $("messageInput").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();$("composer").requestSubmit();}};
+  $("newStoryButton").onclick=openStorySetup;
+  // Return belongs to the multiline draft, never to implicit form submission.
+  $("composer").onsubmit=event=>event.preventDefault();
+  $("sendButton").onclick=event=>{if(event.isTrusted)void sendTurn(event);};
   $("continueButton").onclick=()=>runStoryTool("continue");
   $("elaborateButton").onclick=()=>runStoryTool("elaborate");
   on("myTurnButton","click",generateMyTurnDraft);
@@ -314,7 +328,7 @@ async function createStarterStory(){
     }
     vault.sceneStates.push(createSceneState({storyId,chatId,location:"Formal pack gathering - mate and future Luna announcement",time:"Opening night",participantIds:[personaId,...twins.map(x=>x.id)],tags:["formal-gathering","public-announcement","future-luna","family-politics","opening-scene"]},now));
   }
-  vault.updatedAt=now;await saveVaultAtomic(db,vault);closeStorySetup();renderStory(storyId,chatId);
+  vault.updatedAt=now;await saveAppVault(db,vault);closeStorySetup();renderStory(storyId,chatId);
   if(blackthorn||venomous||kittenTest){
     await generateOpeningForStory(story,chatId);
   }else showStatus("Story created. Cast identities are isolated and ready for canon.","notice");
@@ -323,12 +337,13 @@ const VESPER_HARD_LIMITS=["Anal sex or anal penetration","Breath play","Hard cho
 function renderHardLimits(){const list=$("hardLimitsList");if(!list)return;list.replaceChildren(...VESPER_HARD_LIMITS.map(text=>{const row=document.createElement("div");row.className="hard-limit-item";row.textContent=text;return row;}));}
 function renderKeyStatus(){const hasKey=Boolean(getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY));$("apiKeyStatus").textContent=hasKey?"•••••••• stored securely on this device":"No API key stored on this device";$("replaceKeyButton").textContent=hasKey?"Replace API Key":"Add API Key";}
 function beginKeyReplacement(){const row=$("apiKeyReplaceRow"),input=$("apiKey");row.hidden=false;input.value="";input.focus({preventScroll:true});}
-async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=draft||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(model!==settingsModelSnapshot.trim()){const validation=validateModelId(model);if(!validation.ok)throw new Error(validation.error);}if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);const usage=data?.usage||{};vault.usageEntries.push(recordUsage({storyId:activeStoryId,chatId:activeChatId,model,promptTokens:usage.prompt_tokens||0,completionTokens:usage.completion_tokens||0,cost:null}));await saveVaultAtomic(db,vault);renderQueryMeter();return data;}
+async function probeOpenRouter(prompt){const draft=$("apiKey").value.trim(),key=draft||getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY),model=$("modelName").value.trim();if(model!==settingsModelSnapshot.trim()){const validation=validateModelId(model);if(!validation.ok)throw new Error(validation.error);}if(!key)throw new Error("No OpenRouter API key is loaded.");if(!model)throw new Error("No model is selected.");const response=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",headers:{"Authorization":`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:[{role:"user",content:prompt}],temperature:0,max_tokens:32})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data?.error?.message||`OpenRouter request failed (${response.status}).`);const usage=data?.usage||{};vault.usageEntries.push(recordUsage({storyId:activeStoryId,chatId:activeChatId,model,promptTokens:usage.prompt_tokens||0,completionTokens:usage.completion_tokens||0,cost:null}));await saveAppVault(db,vault);renderQueryMeter();return data;}
 async function testModelConnection(){const out=$("connectionTestStatus");out.textContent="Testing…";try{await probeOpenRouter("Reply with exactly: VESPER CONNECTED");out.textContent="✓ Connection successful.";}catch(error){out.textContent=`Connection failed: ${error.message}`;}}
 async function testRpQuality(){const out=$("connectionTestStatus");out.textContent="Running RP quality test…";try{const data=await probeOpenRouter("In one short sentence, write atmospheric gothic roleplay prose about a candlelit hall. No sexual content.");const sample=data?.choices?.[0]?.message?.content?.trim();out.textContent=sample?`RP test: ${sample}`:"RP test connected, but returned no text.";}catch(error){out.textContent=`RP test failed: ${error.message}`;}}
 function openSettings(){
   const story=(vault?.stories||[]).find(s=>s.id===activeStoryId)||(vault?.stories||[])[0]||null;
   const settings=story?.settings||{};
+  $("assignedPersonaName").textContent=vault.personas.find(p=>p.id===activePersonaId(story))?.name||"No protagonist assigned";
   const setValue=(id,value)=>{const el=$(id);if(el)el.value=value;};
   const setChecked=(id,value)=>{const el=$(id);if(el)el.checked=Boolean(value);};
   const setText=(id,value)=>{const el=$(id);if(el)el.textContent=String(value);};
@@ -372,14 +387,14 @@ async function saveSettings(){
   if(styleStory&&modelChanged&&!enteredKey&&modelIndependentSignature()===settingsModelFormSnapshot){
     const previous=styleStory.settings;
     styleStory.settings={...(previous||{}),model:selectedModel.id,...(intimacyStyle!==normalizeIntimacyStyle(previous?.intimacyStyle)?{intimacyStyle}:{})};
-    try{await saveVaultAtomic(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;$("modelSelectionError").textContent=error.message;$("modelSelectionError").hidden=false;return;}
+    try{await saveAppVault(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;$("modelSelectionError").textContent=error.message;$("modelSelectionError").hidden=false;return;}
     $("settingsPanel").hidden=true;
     return;
   }
   if(styleStory&&intimacyStyle!==normalizeIntimacyStyle(styleStory.settings?.intimacyStyle)&&!enteredKey&&settingsFormSignature()===settingsFormSnapshot){
     const previous=styleStory.settings;
     styleStory.settings={...(previous||{}),intimacyStyle};
-    try{await saveVaultAtomic(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;throw error;}
+    try{await saveAppVault(db,vault);}catch(error){if(previous===undefined)delete styleStory.settings;else styleStory.settings=previous;throw error;}
     $("settingsPanel").hidden=true;
     return;
   }
@@ -392,7 +407,7 @@ async function saveSettings(){
     const cncLine=cncPreferenceLine(),enabledIds=new Set(story.settings?.enabledPreferenceLineIds||[]);
     if(cncLine){if($("cncToggle")?.checked)enabledIds.add(cncLine.id);else enabledIds.delete(cncLine.id);}
     story.settings={...(story.settings||{}),model:modelValue,temperature:Number($("temperatureSetting")?.value)||0.9,maxTokens:Number($("maxTokensSetting")?.value)||1200,intimacyPacing:$("intimacyPacing")?.value||"balanced",...(intimacyStyle!==normalizeIntimacyStyle(story.settings?.intimacyStyle)?{intimacyStyle}:{}),requirePlotAfterSex:Boolean($("requirePlotAfterSex")?.checked),enabledPreferenceLineIds:[...enabledIds]};
-    await saveVaultAtomic(db,vault);
+    await saveAppVault(db,vault);
   }
   $("settingsPanel").hidden=true;
 }
@@ -414,11 +429,11 @@ async function generateToolReply({story,chat,instruction,label}){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
-    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
-    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});await saveVaultAtomic(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>generateToolReply({story,chat,instruction,label})})){showStatus("Reply held for your boundary review.","notice");return;}throw new Error("Vesper couldn\'t produce a usable reply.");}
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
+    if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>generateToolReply({story,chat,instruction,label})})){showStatus("Reply held for your boundary review.","notice");return;}throw new Error("Vesper couldn\'t produce a usable reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
-    await saveVaultAtomic(db,vault);renderStory(story.id,chat.id,"message");showStatus("","clear");
+    await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("","clear");
   }catch(error){showStatus(error?.name==="AbortError"?"Generation stopped.":`Generation failed: ${error.message}`,"error");}
   finally{sending=false;activeGenerationController=null;setGenerationUi(false);}
 }
@@ -433,7 +448,7 @@ async function generateMyTurnDraft(){
   sending=true;setGenerationUi(true);activeGenerationController=new AbortController();showStatus("Drafting your turn…","working");
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
-    const instruction="[OOC TOOL — MY TURN: Draft Amanda's next possible roleplay turn for the user to review and edit. Write ONLY Amanda's proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond Amanda's proposed response. This is a draft only and must not be treated as sent canon until the user submits it.]";
+    const instruction=`[OOC TOOL — MY TURN: Draft ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s next possible roleplay turn for the user to review and edit. Write ONLY ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s proposed response. This is a draft only and must not be treated as sent canon until the user submits it.]`;
     let result;
     try{
       result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
@@ -442,14 +457,14 @@ async function generateMyTurnDraft(){
       showStatus("Provider hiccup. Retrying your draft once…","working");
       result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     }
-    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
     if(result.blocked||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable draft.");
+    if(activeStoryId!==story.id||activeChatId!==chat.id||input.value!==prior){showStatus("Draft request finished. Your current draft was preserved.","notice");return;}
     input.value=result.text.trim();
     input.focus({preventScroll:true});
     input.setSelectionRange(input.value.length,input.value.length);
     showStatus("Draft ready. Edit anything you want, then Send when it feels like you.","notice");
   }catch(error){
-    input.value=prior;
     showStatus(error?.name==="AbortError"?"Drafting stopped.":`Draft failed: ${error.message}`,"error");
   }finally{
     sending=false;activeGenerationController=null;setGenerationUi(false);
@@ -486,15 +501,15 @@ async function generateOpeningForStory(story,chatId){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId,model,preferenceLines,storySettings:story.settings||{},opening:true,maxTokens:3000,repairAttempts:4,signal:activeGenerationController.signal});
-    recordTurnUsage(result,{storyId:story.id,chatId,model});await saveVaultAtomic(db,vault);
+    recordTurnUsage(result,{storyId:story.id,chatId,model});await saveAppVault(db,vault);
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim()){
       const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");
-      if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryOpeningStoryId=null;await saveVaultAtomic(db,vault);renderStory(story.id,chatId,"message");showStatus("Blocked opener accepted by you.","notice");},onReject:async()=>generateOpeningForStory(story,chatId)})){retryOpeningStoryId=story.id;showStatus("Opening held for your boundary review.","notice");return;}
+      if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryOpeningStoryId=null;await saveAppVault(db,vault);renderStory(story.id,chatId,"message");showStatus("Blocked opener accepted by you.","notice");},onReject:async()=>generateOpeningForStory(story,chatId)})){retryOpeningStoryId=story.id;showStatus("Opening held for your boundary review.","notice");return;}
       throw new Error(why?`Vesper rejected the opener: ${why}.`:"Vesper returned no usable opener.");
     }
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId,role:"assistant",text:result.text,ordinal:0,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
     retryOpeningStoryId=null;
-    await saveVaultAtomic(db,vault);
+    await saveAppVault(db,vault);
     renderStory(story.id,chatId,"message");
     showStatus(result.repaired?"Opening repaired before display.":"","notice");
   }catch(error){
@@ -537,16 +552,16 @@ async function generateReplyForMessage({message,story,chat}){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
-    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveVaultAtomic(db,vault);
-    if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryMessageId=null;await saveVaultAtomic(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>{retryMessageId=message.id;await generateReplyForMessage({message,story,chat});}})){retryMessageId=message.id;showStatus("Reply held for your boundary review.","notice");return;}throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn\'t produce a valid reply.");}
+    recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
+    if(result.blocked||!result.validation?.ok||!result.text?.trim()){const why=(result.issueTypes||result.validation?.issues?.map(x=>x.type)||[]).join(", ");const ordinal=nextMessageOrdinal(chat.id);if(offerBlockedReplyReview({result,onAccept:async()=>{vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:String(result.blockedText||result.text||"").trim(),ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired,userApprovedBoundaryOverride:true,boundaryOverrideIssues:sexualBoundaryIssues(result)});retryMessageId=null;await saveAppVault(db,vault);renderStory(story.id,chat.id,"message");showStatus("Blocked reply accepted by you.","notice");},onReject:async()=>{retryMessageId=message.id;await generateReplyForMessage({message,story,chat});}})){retryMessageId=message.id;showStatus("Reply held for your boundary review.","notice");return;}throw new Error(why?`Vesper rejected the reply: ${why}.`:"Vesper couldn\'t produce a valid reply.");}
     const ordinal=nextMessageOrdinal(chat.id);
     vault.messages.push({id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired});
-    retryMessageId=null;await saveVaultAtomic(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id,"message");const composer=$("messageInput");composer.hidden=false;if(!isMobileStoryLayout())composer.focus({preventScroll:true});
+    retryMessageId=null;await saveAppVault(db,vault);sending=false;activeGenerationController=null;setGenerationUi(false);showStatus(result.repaired?"Reply repaired before display.":"",result.repaired?"notice":"clear");renderStory(story.id,chat.id,"message");const composer=$("messageInput");composer.hidden=false;if(!isMobileStoryLayout())composer.focus({preventScroll:true});
   }catch(error){retryMessageId=message.id;showStatus(`Generation failed: ${error.message}`,"error");showRetry(true);}
   finally{sending=false;activeGenerationController=null;$("sendButton").disabled=false;$("sendButton").hidden=false;$("stopButton").hidden=true;$("writingState").hidden=true;}
 }
 async function sendTurn(event){
-  event.preventDefault(); if(sending)return;
+  event.preventDefault(); if(sending||phoneBusy||importingBackup||$("assistantEditPanel"))return;
   const composerDraft=$("messageInput").value;
   const text=composerDraft.trim(),story=vault.stories.find(s=>s.id===activeStoryId),chat=vault.chats.find(c=>c.id===activeChatId);
   if(!text||!story||!chat)return;
@@ -565,11 +580,19 @@ async function sendTurn(event){
   if(!model){showStatus("Choose an OpenRouter model in Settings first.","error");return;}
   if(!getDeviceSecret(DEVICE_SECRET_NAMES.OPENROUTER_API_KEY)){showStatus("Add your OpenRouter API key in Settings first.","error");return;}
   const now=new Date().toISOString(),ordinal=nextMessageOrdinal(chat.id);
-  const userMessage={id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",text,ordinal,createdAt:now};
-  vault.messages.push(userMessage);
-  $("messageInput").value="";await saveVaultAtomic(db,vault);if(isMobileStoryLayout())$("messageInput").blur();renderStory(story.id,chat.id,"message");if(!isMobileStoryLayout())$("messageInput").focus({preventScroll:true});
-  retryMessageId=userMessage.id;
-  await generateReplyForMessage({message:userMessage,story,chat});
+  const userMessage={id:makeId("message"),storyId:story.id,chatId:chat.id,role:"user",personaId:activePersonaId(story),text,ordinal,createdAt:now};
+  // Lock synchronously before the first await. Save a candidate so an abort or
+  // stale conflict cannot leave an unsaved message in the in-memory vault.
+  const candidate=structuredClone(vault);candidate.messages.push(userMessage);
+  sending=true;setGenerationUi(true);
+  try{
+    await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;
+    if($("messageInput").value===composerDraft)$("messageInput").value="";
+    if(isMobileStoryLayout())$("messageInput").blur();renderStory(story.id,chat.id,"message");if(!isMobileStoryLayout())$("messageInput").focus({preventScroll:true});
+    retryMessageId=userMessage.id;
+    await generateReplyForMessage({message:userMessage,story,chat});
+  }catch(error){showStatus(`Could not save your message: ${error.message}. Your draft was not submitted.`,"error");}
+  finally{sending=false;setGenerationUi(false);}
 }
 function changeStory(e){const storyId=e.target.value,chat=chooseInitialChat(vault,storyId);renderStory(storyId,chat?.id);}
 function renderStoryPicker(){const picker=$("storyPicker"),choices=listStoryChoices(vault);picker.innerHTML="";for(const choice of choices){const option=document.createElement("option");option.value=choice.storyId;option.textContent=`${choice.title} — ${choice.characterName} / ${choice.personaName}`;picker.appendChild(option);}if(activeStoryId)picker.value=activeStoryId;picker.hidden=choices.length<2;}
@@ -588,12 +611,12 @@ async function confirmDeleteStory(){
   const storyScoped=["messages","memoryEntries","milestones","relationships","statEvents","sceneStates","knowledgeEntries","loreEntries","usageEntries"];
   for(const key of storyScoped)vault[key]=(vault[key]||[]).filter(x=>x.storyId!==storyId&&!chatIds.has(x.chatId));
   vault.chats=vault.chats.filter(x=>x.storyId!==storyId);
-  vault.personas=vault.personas.filter(x=>x.storyId!==storyId&&x.id!==story.personaId);
+  vault.personas=vault.personas.filter(x=>!(x.storyId===storyId||storyPersonaIds(story).includes(x.id))||vault.stories.some(s=>s.id!==storyId&&storyPersonaIds(s).includes(x.id)));
   const charIds=new Set([story.primaryCharacterId,...(story.characterIds||[])].filter(Boolean));
   vault.characters=vault.characters.filter(x=>x.storyId!==storyId&&!charIds.has(x.id));
   vault.stories=vault.stories.filter(x=>x.id!==storyId);reconcilePhoneRecords();vault.updatedAt=new Date().toISOString();
   if(activeStoryId===storyId){activeStoryId=null;activeChatId=null;}
-  await saveVaultAtomic(db,vault);closeDeleteStory();showLibrary();
+  await saveAppVault(db,vault);closeDeleteStory();showLibrary();
 }
 function showLibrary(){
   storyPhone?.close();
@@ -632,7 +655,7 @@ function showDataView(kind){
   const rows=(isMemory?vault.memoryEntries:vault.milestones).filter(x=>!storyId||!x.storyId||x.storyId===storyId);
   const list=$("dataList");list.replaceChildren();
   if(!rows.length){const empty=document.createElement("div");empty.className="data-empty";empty.textContent=isMemory?"No memory entries for this story yet.":"No milestones for this story yet.";list.append(empty);}
-  for(const row of rows){const card=document.createElement("article");card.className="data-card";const title=document.createElement("strong"),body=document.createElement("div");title.textContent=isMemory?(row.kind||"Memory"):(row.title||row.name||row.kind||"Milestone");body.textContent=row.text||row.description||row.label||JSON.stringify(row.data||row.value||"");card.append(title,body);list.append(card);}
+  for(const row of rows){const card=document.createElement("article");card.className="data-card";const title=document.createElement("strong"),body=document.createElement("div");title.textContent=isMemory?(row.kind||"Memory"):(row.title||row.name||row.kind||"Milestone");body.textContent=row.text||row.evidence||row.description||row.label||JSON.stringify(row.data||row.value||"");if(!isMemory){const names=(row.participants||row.participantIds||[]).map(id=>vault.characters.find(c=>c.id===id)?.name).filter(Boolean);title.textContent+=(names.length?" · "+names.join(" · "):"")+(row.status==="candidate"?" — Needs confirmation":"");}card.append(title,body);if(!isMemory&&row.status==="candidate"){const confirmButton=document.createElement("button");confirmButton.type="button";confirmButton.className="ghost";confirmButton.textContent="Confirm completed milestone";confirmButton.onclick=async()=>{try{if(sending||phoneBusy)throw new Error("Wait until the current operation finishes.");const candidate=confirmMilestoneEvent(vault,row.id);await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;showDataView("milestones");}catch(e){showStatus(e.message,"error");}};card.append(confirmButton);const reject=document.createElement("button");reject.type="button";reject.className="ghost";reject.textContent="Not earned";reject.onclick=async()=>{try{if(sending||phoneBusy)return;const candidate=structuredClone(vault);candidate.milestones.find(m=>m.id===row.id).status="rejected";await saveAppVault(db,candidate,{expectedRevision:vault.storageRevision});vault=candidate;showDataView("milestones");}catch(e){showStatus(e.message,"error");}};card.append(reject);}list.append(card);}
   ["libraryNavButton","storyNavButton","memoryNavButton","milestonesNavButton"].forEach(id=>$(id).classList.remove("active"));
   $(isMemory?"memoryNavButton":"milestonesNavButton").classList.add("active");
 }
@@ -676,7 +699,7 @@ function editAssistantMessage(message,targetNode){
   save.onclick=async()=>{if(saving)return;if(sending||phoneBusy){error.textContent="Wait for the current request to finish.";return;}try{
     const next=prepareAssistantEdit(baseline,{messageId:message.id,storyId:message.storyId,chatId:message.chatId,text:field.value});if(!next){close();return;}
     saving=true;save.disabled=true;cancel.disabled=true;original.disabled=true;
-    await saveVaultAtomic(db,next,{expectedRevision:revision});committed=true;vault=next;dispose();if(targetNode?.isConnected)renderMessage(targetNode,next.messages.find(m=>m.id===message.id));showStatus("Correction saved as authoritative for this conversation. Stale derived context is withheld; stored memories and milestones were not rewritten.","notice");
+    await saveAppVault(db,next,{expectedRevision:revision});committed=true;vault=next;dispose();if(targetNode?.isConnected)renderMessage(targetNode,next.messages.find(m=>m.id===message.id));showStatus("Correction saved as authoritative for this conversation. Stale derived context is withheld; stored memories and milestones were not rewritten.","notice");
   }catch(e){if(committed)showStatus("The edit was saved, but refreshing the view failed. Reload Vesper to see it.","error");else error.textContent=e?.message||"Could not save this edit. Saved data was not changed.";}finally{saving=false;save.disabled=false;cancel.disabled=false;original.disabled=false;}};
   card.append(title,note,label,original,error,save,cancel);panel.append(card);document.body.append(panel);field.focus({preventScroll:true});
 }
@@ -686,7 +709,7 @@ async function editUserMessage(message){
   if(next===null)return;
   const text=next.trim();if(!text||text===String(message.text||"").trim())return;
   message.text=text;message.editedAt=new Date().toISOString();vault.updatedAt=message.editedAt;
-  await saveVaultAtomic(db,vault);renderStory(message.storyId,message.chatId);showStatus("Post edited. Vesper will use the corrected version from now on.","notice");
+  await saveAppVault(db,vault);renderStory(message.storyId,message.chatId);showStatus("Post edited. Vesper will use the corrected version from now on.","notice");
 }
 async function deleteMessageBranch(message){
   if(sending){showStatus("Wait for Vesper to finish writing before deleting a post.","notice");return;}
@@ -706,7 +729,7 @@ async function deleteMessageBranch(message){
   vault.statEvents=(vault.statEvents||[]).filter(entry=>!entry.sourceMessageId||!doomedIds.has(entry.sourceMessageId));
   reconcilePhoneRecords();
   retryMessageId=null;retryOpeningStoryId=null;vault.updatedAt=new Date().toISOString();
-  await saveVaultAtomic(db,vault);
+  await saveAppVault(db,vault);
   renderStory(message.storyId,message.chatId);
   showStatus("Post removed. Vesper no longer sees that deleted branch in chat context.","notice");
 }
@@ -731,7 +754,7 @@ async function regenerateAssistantMessage(message){
     if(result.blocked||result.validation?.needsRepair||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a valid replacement.");
     const usageEntries=(result.usage||[]).map(usage=>recordUsage({storyId:story.id,chatId:chat.id,model,promptTokens:usage?.prompt_tokens||0,completionTokens:usage?.completion_tokens||0,cost:null}));
     const candidate=completeVaultRegeneration(plan,{id:makeId("message"),storyId:story.id,chatId:chat.id,role:"assistant",text:result.text,ordinal:targetOrdinal,createdAt:new Date().toISOString(),validation:result.validation,repaired:result.repaired},usageEntries);
-    vault=await saveVaultAtomic(db,candidate,{expectedRevision:plan.expectedRevision});renderStory(story.id,chat.id,"message");showStatus("Reply regenerated.","notice");
+    vault=await saveAppVault(db,candidate,{expectedRevision:plan.expectedRevision});renderStory(story.id,chat.id,"message");showStatus("Reply regenerated.","notice");
   }catch(error){
     const text=error?.code==="VESPER_VAULT_CONFLICT"?`Regeneration was not saved. ${error.message}`:error?.name==="AbortError"?"Regeneration stopped. Original messages kept.":`Regeneration failed: ${error?.message||"The vault save was aborted."} Original messages kept.`;
     showStatus(text,"error");
@@ -778,6 +801,6 @@ function bindMessageScroller(){
   if(!storyScroller)storyScroller=createStoryScroller({scroller:$("messages"),button:$("scrollBottomButton"),shell:document.querySelector(".app-shell")});
 }
 function jumpMessagesToLatest(smooth=false){bindMessageScroller();storyScroller.position({smooth});}
-function renderStory(storyId,chatId,scrollIntent="bottom"){if(activeStoryId!==storyId||activeChatId!==chatId)storyPhone?.close();const shell=document.querySelector(".app-shell");shell.classList.add("story-open");rememberTab("story");rememberStory(storyId);renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;storyPhone?.refresh();$("storyTitle").textContent=s?.title||"Untitled";
+function renderStory(storyId,chatId,scrollIntent="bottom"){if(activeStoryId!==storyId||activeChatId!==chatId)storyPhone?.close();const shell=document.querySelector(".app-shell");shell.classList.add("story-open");rememberTab("story");rememberStory(storyId);renderQueryMeter();if(!sending)setGenerationUi(false);activeStoryId=storyId;activeChatId=chatId;$("dataView").hidden=true;$("storyNavButton").classList.add("active");$("libraryNavButton").classList.remove("active");$("memoryNavButton").classList.remove("active");$("milestonesNavButton").classList.remove("active");$("milestonesNavButton").textContent="Milestones"+(vault.milestones.some(m=>m.storyId===storyId&&m.status==="candidate")?" •":"");renderStoryPicker();const s=vault.stories.find(x=>x.id===storyId);$("emptyState").hidden=true;$("chatView").hidden=false;storyPhone?.refresh();$("storyTitle").textContent=s?.title||"Untitled";
  const rows=vault.messages.filter(m=>m.storyId===storyId&&(!chatId||m.chatId===chatId)&&!(m.role==="user"&&/^\s*\/continue\s*$/i.test(String(m.text||"")))).sort((x,y)=>{const xo=Number(x.ordinal),yo=Number(y.ordinal);if(Number.isFinite(xo)&&Number.isFinite(yo)&&xo!==yo)return xo-yo;return String(x.createdAt||"").localeCompare(String(y.createdAt||""));});$("messages").innerHTML=rows.map(m=>`<article class="message ${m.role==="user"?"user":"assistant"}"></article>`).join("");[...$("messages").children].forEach((n,i)=>renderMessage(n,rows[i]));const latest=rows.at(-1);if(!sending&&!rows.length&&s?.openingScene){retryMessageId=null;retryOpeningStoryId=s.id;showRetry(true,"Generate Opening");showStatus("This story has no opener yet.","notice");}else if(!sending&&latest?.role==="user"){retryOpeningStoryId=null;retryMessageId=latest.id;showRetry(true,"Generate Missing Reply");showStatus("Your last turn has no Vesper reply yet.","notice");}else if(!sending){if(retryOpeningStoryId===storyId)retryOpeningStoryId=null;showRetry(false);}bindMessageScroller();storyScroller.position({target:scrollIntent==="message"?$("messages").lastElementChild:null});}
 boot().catch(error=>{document.body.innerHTML=`<main style="padding:24px;color:#f3ece7;background:#090708;min-height:100vh"><h1>Vesper could not start.</h1><pre></pre></main>`;document.querySelector("pre").textContent=error.stack||error.message;});

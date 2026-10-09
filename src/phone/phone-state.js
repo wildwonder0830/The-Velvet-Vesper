@@ -1,3 +1,4 @@
+import { activePersonaId, storyPersonaIds,historicalPersonaVault } from "../personas/persona-store.js";
 import { assistantTextVersions, historicalReplyVault } from "../chat/message-edit.js";
 import {eventSourceCurrent} from './phone-event-evidence.js';
 import {extendedCandidateIndex} from './phone-history-parser.js';
@@ -70,10 +71,10 @@ export function appendPhoneMessage(vault, storyId, threadId, message) {
   return edit(vault,storyId,s => {
     const t = s.phone.threads.find(t => t.id === threadId); if (!t) fail('Thread not found.');
     if(t.historicalOnly)fail('Historical archives are read-only.');
-    const audienceIds=[...new Set([s.personaId,...t.participantIds])];
+    const audienceIds=[...new Set([activePersonaId(s),...t.participantIds])];
     if ((message.storyId && message.storyId !== storyId) || (message.chatId && message.chatId !== t.chatId)) fail('Reply belongs to another story chat.');
     if (message.audienceIds && (!ids(message.audienceIds) || message.audienceIds.length !== audienceIds.length || !audienceIds.every(id=>message.audienceIds.includes(id)))) fail('Thread membership changed. Refresh before saving the reply.');
-    const senderAllowed = message.senderType === 'persona' ? message.senderId === s.personaId : t.participantIds.includes(message.senderId);
+    const senderAllowed = message.senderType === 'persona' ? message.senderId === activePersonaId(s) : t.participantIds.includes(message.senderId);
     if (!senderAllowed) fail('Sender is not a current thread participant.');
     t.messages.push({...message,id:message.id || makeId('phone-message'),storyId,chatId:t.chatId,
       ordinal:Math.max(t.readThroughOrdinal,0,...t.messages.map(m => m.ordinal))+1,
@@ -97,7 +98,7 @@ export function orderedPhoneMessages(thread) {
 }
 export function recoveredSourceCurrent(message,vault,{includeExcluded=false,candidateIndex}={}) {
  if(recoveredSourceMatches(message,vault,{includeExcluded,candidateIndex}))return true;
- const historical=includeExcluded?historicalReplyVault(vault,message.recovery?.importedAt):vault;
+ const historical=includeExcluded?historicalReplyVault(vault,message.recovery?.importedAt):historicalPersonaVault(vault,message.recovery?.importedAt);
  return historical!==vault&&recoveredSourceMatches(message,historical,{includeExcluded});
 }
 function recoveredSourceMatches(message,vault,{includeExcluded=false,candidateIndex}={}) {
@@ -151,7 +152,7 @@ export function validateStoryPhone(story, vault) {
   const p = story.phone;
   if (!object(p) || p.version !== 1 || !object(p.contactDisplayNames) || !Array.isArray(p.threads)) fail('Unsupported or incomplete phone format.');
   const castIds = new Set(getPhoneContacts(vault,story.id).map(c=>c.id));
-  const characterIds = new Set(vault.characters.map(c => c.id)), historicalIds=new Set((p.historicalContacts||[]).map(c=>c.id)),known = new Set([story.personaId,...characterIds,...historicalIds]);
+  const characterIds = new Set(vault.characters.map(c => c.id)), historicalIds=new Set((p.historicalContacts||[]).map(c=>c.id)),known = new Set([...storyPersonaIds(story),...characterIds,...historicalIds]);
   const recoveredKnown = new Set([story.personaId,...castIds,...historicalIds]);
   validateHistoricalContacts(story,vault,recoveredKnown);
   const candidateIndex=p.threads.some(t=>t.messages?.some(m=>m.recovery?.version===2))?extendedCandidateIndex(vault,story.id,{includeExcluded:true}):null;
@@ -167,8 +168,8 @@ export function validateStoryPhone(story, vault) {
     for (const m of t.messages) {
       if (!object(m) || !text(m.id) || messages.has(m.id)) fail('Invalid or duplicate message ID.');messages.add(m.id);
       if (m.storyId !== story.id || m.chatId !== t.chatId || !Number.isSafeInteger(m.ordinal) || m.ordinal <= ordinal || !text(m.text,80000) || (!m.recovery&&(typeof m.createdAt !== 'string' || !Number.isFinite(Date.parse(m.createdAt))))) fail('Invalid message content, time, or ownership.'); ordinal=m.ordinal;
-      if (!ids(m.audienceIds) || (!m.audienceIds.includes(story.personaId)&&!(m.recovery?.version===2&&t.historicalOnly)) || !m.audienceIds.includes(m.senderId) || m.audienceIds.some(id => !known.has(id))) fail('Invalid historical message recipients.');
-      if (!(m.senderType === 'persona' && m.senderId === story.personaId) && !(m.senderType === 'character' && characterIds.has(m.senderId)) && !([2,3].includes(m.recovery?.version)&&m.senderType==='contact'&&historicalIds.has(m.senderId))) fail('Invalid canonical sender.');
+      if (!ids(m.audienceIds) || (!storyPersonaIds(story).some(id=>m.audienceIds.includes(id))&&!(m.recovery?.version===2&&t.historicalOnly)) || !m.audienceIds.includes(m.senderId) || m.audienceIds.some(id => !known.has(id))) fail('Invalid historical message recipients.');
+      if (!(m.senderType === 'persona' && storyPersonaIds(story).includes(m.senderId)) && !(m.senderType === 'character' && characterIds.has(m.senderId)) && !([2,3].includes(m.recovery?.version)&&m.senderType==='contact'&&historicalIds.has(m.senderId))) fail('Invalid canonical sender.');
       if(m.recovery){validateRecovery(m,vault,m.recovery.version===2?recoveredKnown:known,candidateIndex);if(recoveryKeys.has(m.recovery.key))fail('Duplicate recovered message.');recoveryKeys.add(m.recovery.key);}
       for (const [field,collection] of [['sourceMessageIds','messages'],['sourceMemoryIds','memoryEntries'],['sourceMilestoneIds','milestones']]) {
         if (m[field] === undefined) continue;

@@ -1,3 +1,4 @@
+import { storyPersonaIds } from "../personas/persona-store.js";
 import { makeId } from "../schema.js";
 
 const NEGATION = /\b(?:didn['’]?t|did not|never|not|almost|nearly|wanted to|thought about|imagined|dreamed|would have|could have)\b/i;
@@ -56,6 +57,8 @@ const COMPLETED_EVENT = {
   first_date: /\b(?:went|had|completed)\b[\s\S]*\bdate\b/i,
   relationship_official: /\b(?:are|became|we're|we are)\b[\s\S]*\b(?:together|official|partners|boyfriend|girlfriend)\b/i,
   love_confession: /\b(?:i love you|confessed[\s\S]*love)\b/i,
+  bonded: /\b(?:completed[\s\S]*bond|bond[\s\S]*completed|bonded)\b/i,
+  fated: /\b(?:recognized|confirmed|discovered)[\s\S]*fated[\s\S]*bond\b/i,
   mated: /\b(?:completed[\s\S]*(?:mate bond|bond)|(?:mate bond|bond)[\s\S]*completed|(?:are|became|were) mated)\b/i
 };
 const ids = entry => entry?.participants || entry?.participantIds || [];
@@ -80,7 +83,7 @@ export function validateCanonicalMilestone(milestone, vault, { storyId, chatId }
   if (milestone.legacy?.status && !CANONICAL_STATUSES.has(milestone.legacy.status)) fail("Imported provisional history is not canonical evidence.");
   if (milestone.contradictsMilestoneId || milestone.supersedesMilestoneId || milestone.value === false) fail("Contradictory milestones require an explicit retcon, not an automatic upgrade.");
   const participants = ids(milestone);
-  const allowed = new Set([story?.personaId, story?.primaryCharacterId, ...(story?.characterIds || [])].filter(Boolean));
+  const allowed = new Set([...storyPersonaIds(story), story?.primaryCharacterId, ...(story?.characterIds || [])].filter(Boolean));
   if (!Array.isArray(participants) || participants.length < (COMPLETED_EVENT[milestone.type] ? 2 : 1) ||
     new Set(participants).size !== participants.length || participants.some(id => !allowed.has(id) ||
       ![...(vault.personas || []), ...(vault.characters || [])].some(record => record.id === id))) fail("Milestone participants must be explicit identities owned by this story.");
@@ -97,7 +100,7 @@ export function validateCanonicalMilestone(milestone, vault, { storyId, chatId }
       participants.some(id => !source.participantIds.includes(id)))) fail("Source evidence belongs to different participants.");
     if (!userVerified && !source?.participantIds && Array.isArray(participants) && participants.some(id => {
       const record = [...(vault.personas || []), ...(vault.characters || [])].find(row => row.id === id);
-      return !record?.name || !evidence.toLowerCase().includes(record.name.toLowerCase());
+      return !record?.name || ![record.name,...(record.versions||[]).map(v=>v.name),...(record.historicalNames||[])].some(name=>typeof name==='string'&&evidence.toLowerCase().includes(name.toLowerCase()));
     })) fail("Source evidence does not identify the milestone participants.");
   } else if (!userVerified) fail("A source message or explicit user-verified historical evidence is required.");
   if (!userVerified && (milestone.verification?.requiresContextVerification ||

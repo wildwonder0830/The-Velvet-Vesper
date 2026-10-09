@@ -1,3 +1,4 @@
+import { activePersonaId,storyPersonaIds } from "../personas/persona-store.js";
 import { projectEditedContext, assistantTextVersions } from "../chat/message-edit.js";
 import {extendedCandidateIndex} from './phone-history-parser.js';
 import { filterMemoryForModel } from '../memory/memory-manager.js';
@@ -24,6 +25,7 @@ function sourcesAvailable(vault,message,checkOwner=true) {
   return true;
 }
 export function phoneMessageVisible(vault, message, respondingCharacterIds,candidateIndex) {
+  const story=vault.stories.find(s=>s.id===message.storyId);if(story?.personaBinding&&message.audienceIds?.some(id=>storyPersonaIds(story).includes(id))&&!message.audienceIds.includes(activePersonaId(story)))return false;
   if (!respondingCharacterIds?.length || !respondingCharacterIds.every(id => message.audienceIds?.includes(id)) || !sourcesAvailable(vault,message)||!recoveredSourceCurrent(message,vault,{candidateIndex})) return false;
   if ((message.sourceMilestoneIds || []).some(id => !canonicalMilestones(vault,message.storyId,message.chatId).some(m => m.id === id))) return false;
   const filtered = filterMemoryForModel([message],vault.memoryEntries,message.storyId);
@@ -62,7 +64,7 @@ export function reconcilePhoneDependencies(vault,{historicalBase=vault}={}) {
     const oldContactIds=new Set((historicalBase.stories.find(x=>x.id===s.id)?.phone?.historicalContacts||[]).map(c=>c.id));
     const evidence=ids=>ids.filter(id=>next.messages.some(m=>m.id===id&&m.storyId===s.id));
     if(p.historicalContacts)p.historicalContacts=p.historicalContacts.map(c=>({...c,sourceMessageIds:evidence(c.sourceMessageIds)})).filter(c=>c.sourceMessageIds.length);
-    const known=new Set([s.personaId,...next.characters.map(c=>c.id),...(p.historicalContacts||[]).map(c=>c.id)]);
+    const known=new Set([...storyPersonaIds(s),...next.characters.map(c=>c.id),...(p.historicalContacts||[]).map(c=>c.id)]);
     if(p.historicalAliases)p.historicalAliases=p.historicalAliases.map(a=>({...a,sourceMessageIds:evidence(a.sourceMessageIds)})).filter(a=>known.has(a.id)&&a.sourceMessageIds.length);
     p.threads=p.threads.filter(t=>!(t.historicalOnly&&!t.messages.length&&t.participantIds.some(id=>!known.has(id))));
     for(const id of oldContactIds)if(!known.has(id))delete p.contactDisplayNames[id];

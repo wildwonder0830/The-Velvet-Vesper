@@ -160,3 +160,6 @@
 #assistantEditPanel button{min-height:44px}
 
 .message-speaker{display:block;margin-bottom:8px;font-size:.8rem;font-weight:600;line-height:1.4;color:inherit;overflow-wrap:anywhere}
+
+/* Protagonist management is outside the Story reading layout. */
+.persona-form{display:grid;gap:1rem;max-width:46rem;margin:auto}.persona-form label{display:grid;gap:.4rem;color:var(--text,#eee)}.persona-form input,.persona-form textarea{width:100%;box-sizing:border-box;font:inherit;font-size:16px;color:inherit;background:#1c141c;border:1px solid #684957;border-radius:.6rem;padding:.7rem}.persona-form textarea{min-height:6rem;resize:vertical}.persona-form button,.data-card button{margin:.3rem;min-height:44px}.milestone-toast p{margin:.35rem 0}.milestone-toast .milestone-description{font-size:.85rem;line-height:1.4;color:#ead1d7}

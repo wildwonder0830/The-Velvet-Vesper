@@ -1,3 +1,4 @@
+import { activePersonaId } from "../personas/persona-store.js";
 import { assemblePrompt } from '../prompt/prompt-assembler.js';
 import { buildPhoneContext, filterPhoneProvenance } from './phone-context.js';
 import { validateStoryPhone } from './phone-state.js';
@@ -29,7 +30,7 @@ export async function runPhoneTurn({vault,storyId,threadId,action,signal,send=se
   const milestones=a.milestones.filter(shared);
   // Avoid continuity's combined knowledge block; regenerate only from admitted canonical sources.
   const payload=filterPhoneProvenance(vault,{hardRules:a.hardRules,sexualRedLines:a.sexualRedLines,greenLines:a.greenLines,storySettings:a.storySettings,
-    rpPolicy:a.agencyAndRpPolicy,persona:a.persona,characters,relationship,milestones,memory,lore,
+    rpPolicy:a.agencyAndRpPolicy,persona:a.persona,protagonistIdentity:a.protagonistIdentity,characters,relationship,milestones,memory,lore,
     storyPremise:a.story.premise||null,...(a.intimacyStyleDirective?{intimacyStyle:a.intimacyStyleDirective}:{}),
     phone:{participants:thread.participantIds,history,action},
     rules:'Text-only phone exchange. Return only a JSON array of {speakerId, text}. Use canonical participant IDs, each character’s established distinct voice, and no narration or persona-authored replies. Not every participant needs to reply. Green lines permit but never require content. Preserve all limits, adult requirements and CNC permissions; no permission toggle forces a dynamic. These are electronic exchanges, not physical milestone evidence. Do not infer private knowledge or past group history not supplied here.'},storyId,thread.chatId);
@@ -56,9 +57,9 @@ export async function runPhoneTurn({vault,storyId,threadId,action,signal,send=se
   if (!Array.isArray(rows)||!rows.length||rows.length>20) throw new Error('Vesper returned no valid phone messages.');
   const messages=rows.map(row=>{
     if (!row||!thread.participantIds.includes(row.speakerId)||typeof row.text!=='string'||!row.text.trim()||row.text.length>80000)throw new Error('Vesper returned an invalid phone speaker or message.');
-    const validation=validateModelOutput({text:row.text,continuity:{mateBond:Boolean(relationship?.stage==='mated')},priorUserText:orderedPhoneMessages(thread).reverse().find(m=>m.senderType==='persona')?.text||''});
+    const validation=validateModelOutput({text:row.text,continuity:{mateBond:Boolean(relationship?.stage==='mated')},persona:a.persona,priorUserText:orderedPhoneMessages(thread).reverse().find(m=>m.senderType==='persona')?.text||''});
     if(!validation.ok||validation.needsRepair)throw new Error('Vesper’s phone reply failed story boundaries or continuity validation. Use Continue to try again.');
-    return {senderType:'character',senderId:row.speakerId,text:row.text.trim(),storyId,chatId:thread.chatId,audienceIds:[...new Set([story.personaId,...thread.participantIds])],...sources};
+    return {senderType:'character',senderId:row.speakerId,text:row.text.trim(),storyId,chatId:thread.chatId,audienceIds:[...new Set([activePersonaId(story),...thread.participantIds])],...sources};
   });
   return {messages,usage:response.usage||null};
   } catch(error) { error.phoneUsage=response.usage||null; throw error; }

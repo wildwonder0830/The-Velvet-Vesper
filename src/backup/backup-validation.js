@@ -1,3 +1,4 @@
+import { validatePersonaBindings } from "../personas/persona-store.js";
 import { validateStoryPhone } from "../phone/phone-state.js";
 import { validateVault } from "../schema.js";
 
@@ -29,6 +30,7 @@ export function validateVesperBackup(vault) {
   const {error, field, records} = checks(errors);
   if (!object(vault)) return {ok:false, errors:["Backup must be a JSON object."]};
   if (vault.backupSchema !== undefined && vault.backupSchema !== 1) error("backupSchema", "unsupported backup version; use a compatible Vesper export.");
+  errors.push(...validatePersonaBindings(vault));
   const lists = {}, indexes = {};
   for (const key of COLLECTIONS) {
     lists[key] = records(vault[key], key, true);

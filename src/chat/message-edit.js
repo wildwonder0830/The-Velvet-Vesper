@@ -79,8 +79,8 @@ export function assistantTextVersions(message) {
   return [message?.text,...(authority(message) ? list(message.editHistory).map(version=>version?.text) : [])].filter(text=>typeof text==='string');
 }
 export function historicalReplyVault(vault, asOf) {
-  if (!(vault.messages||[]).some(authority)) return vault;
-  return {...vault,messages:vault.messages.map(message=>{
+  if (!(vault.messages||[]).some(authority) && !(vault.personas||[]).some(p=>p.versions?.length)) return vault;
+  return {...vault,personas:(vault.personas||[]).map(p=>{const versions=[...(p.versions||[]),{name:p.name,profile:p.profile,at:p.updatedAt||p.createdAt}].filter(v=>Number.isFinite(Date.parse(v.at))&&Date.parse(v.at)<=Date.parse(asOf)).sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));const version=versions.at(-1)||p.versions?.[0];return version?{...p,name:version.name,profile:version.profile}:p;}),messages:vault.messages.map(message=>{
     const {editHistory,editAuthority,...source}=message;
     let text=message.text;
     if(authority(message)){

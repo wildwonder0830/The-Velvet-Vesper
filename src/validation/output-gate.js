@@ -16,7 +16,7 @@ const PASSIVE_HANDOFF_PATTERNS = [
 const PRIVATE_AUTHORSHIP_CONTEXT = /\b(?:notes?|journal|diary|entries?|fantas(?:y|ies)|wish\s*list|private\s*list|drafts?|saved\s*(?:messages?|entries?)|app\s*(?:notes?|entries?))\b/i;
 const INVENTED_PERSONA_PRIVATE_VOICE = /(?:^|\n)\s*(?:[*_>\-\s]*\d+[.)]?\s*)?(?:[*_]?\s*)?(?:I\s+(?:want|need|wish|imagine|love|like)|Want\s+(?:him|her|them|to|the)|Need\s+(?:him|her|them|to|the)|I(?:'|’)m\s+(?:his|hers|theirs)|Make\s+me\b)/im;
 
-export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "" }) {
+export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null }) {
   const issues = [];
   if (!String(text || "").trim()) {
     issues.push({
@@ -35,7 +35,9 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
   }
 
   if (!personaDraft) {
-    for (const pattern of USER_AGENCY_PATTERNS) {
+    const name=persona?.name||"Amanda",escaped=name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+    const agencyPatterns=[...USER_AGENCY_PATTERNS,...USER_AGENCY_PATTERNS.map(p=>new RegExp(p.source.replace("Amanda",escaped),p.flags))];
+    for (const pattern of agencyPatterns) {
       const outputMatch = text.match(pattern)?.[0]?.replace(/\s+/g, " ").trim().toLowerCase();
       const userEstablished = outputMatch && priorUserText.replace(/\s+/g, " ").toLowerCase().includes(outputMatch);
       if (outputMatch && !userEstablished) issues.push({ type: "user-agency", severity: "repair", message: "Model supplied a voluntary or consequential choice for Amanda." });
@@ -61,6 +63,11 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
     issues.push({ type: "continuity-reset", severity: "repair", message: "Output conflicts with established mate-bond state." });
   }
 
+  if(String(persona?.profile?.species||'').toLowerCase()==='human'){
+    const escaped=(persona.name||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const forbidden=new RegExp(`\\b${escaped}(?:['’]s|\\s+(?:has|grew|sprouted))\\s+(?:[\\w-]+\\s+){0,2}(?:tail|feline ears|fur|claws)\\b`,'i');
+    if(escaped&&forbidden.test(String(text)))issues.push({type:'persona-identity',severity:'repair',message:'The assigned protagonist is human; NPC feline anatomy must not be transferred to this persona.'});
+  }
   return {
     ok: !issues.some(issue => issue.severity === "block"),
     needsRepair: issues.some(issue => issue.severity === "repair"),
@@ -68,11 +75,12 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
   };
 }
 
-export function buildRepairInstruction(result, { opening = false, personaDraft = false } = {}) {
+export function buildRepairInstruction(result, { opening = false, personaDraft = false, persona = null } = {}) {
   if (!result?.issues?.length) return "";
   const reasons = result.issues.map(issue => `- ${issue.message || issue.term || issue.type}`).join("\n");
-  const agencyRule=personaDraft
+  const agencyRule=(personaDraft
     ? "This is a MY TURN draft: write only Amanda's proposed turn and do not write model-controlled characters' dialogue, actions, thoughts, or reactions."
-    : "Do not supply the user-controlled persona's voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential choices. Never invent Amanda-authored private notes, fantasies, desires, diary entries, messages, lists, recordings, or offscreen confessions; only use contents explicitly supplied by the user. Involuntary, unavoidable, mechanically necessary, or explicitly pre-established events may be narrated.";
-  return `Rewrite the response without changing the intended story beat. Correct these violations:\n${reasons}\n${agencyRule} Preserve established canon and relationship state.${opening ? " For an opening turn, do not use passive handoff language; simply end on the configured completed opening beat without narrating Amanda." : ""}`;
+    : "Do not supply the user-controlled persona's voluntary actions, substantive dialogue, thoughts, feelings, intentions, trust, consent, or consequential choices. Never invent Amanda-authored private notes, fantasies, desires, diary entries, messages, lists, recordings, or offscreen confessions; only use contents explicitly supplied by the user. Involuntary, unavoidable, mechanically necessary, or explicitly pre-established events may be narrated.").replaceAll("Amanda",persona?.name||"Amanda");
+  const identity=persona?` Assigned protagonist: ${persona.name}. Species: ${persona.profile?.species||"unspecified"}. Follow the assigned profile and hard limits.`:"";
+  return `Rewrite the response without changing the intended story beat. Correct these violations:\n${reasons}\n${agencyRule}${identity} Preserve established canon and relationship state.${opening ? " For an opening turn, do not use passive handoff language; simply end on the configured completed opening beat without narrating Amanda." : ""}`;
 }

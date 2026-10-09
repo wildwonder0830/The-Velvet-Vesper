@@ -1,3 +1,4 @@
+import { personaModelVault } from "../personas/persona-store.js";
 import { projectEditedContext } from "../chat/message-edit.js";
 import { applyHardRuleSanitizers, findHardRuleViolations, VESPER_HARD_RULES } from "../rules/hard-rules.js";
 import { activeMemory, filterMemoryForModel } from "../memory/memory-manager.js";
@@ -49,17 +50,19 @@ export function buildStoryContext(vault, storyId, chatId = null) {
     throw new Error("Chat not found in active story.");
   }
 
-  const persona = byId(vault.personas, story.personaId);
+  vault=personaModelVault(vault,storyId);
+  const effectiveStory=byId(vault.stories,storyId);
+  const persona = byId(vault.personas, effectiveStory.personaId);
   const characterIds = new Set(story.characterIds || []);
   if (story.primaryCharacterId) characterIds.add(story.primaryCharacterId);
   const characters = (vault.characters || []).filter(c => characterIds.has(c.id));
 
   const context = {
     hardRules: VESPER_HARD_RULES,
-    story,
+    story:effectiveStory,
     persona,
     characters,
-    lore: scopedLore(vault, story),
+    lore: scopedLore(vault, effectiveStory),
     memory: storyMemory(vault, story.id, chatId).filter(m => relationshipSourcesVisible(m, vault, storyId, chatId) && milestoneDerivedRecordIsCanonical(m, vault, storyId, chatId)),
     relationships: (vault.relationships || []).filter(r => r.storyId === story.id && relationshipOwnedBy(r, storyId, chatId) && milestoneDerivedRecordIsCanonical(r, vault, storyId, chatId)).map(r =>
       Array.isArray(r.establishedFacts) ? { ...r, establishedFacts: r.establishedFacts.filter(f => relationshipOwnedBy(f, storyId, chatId, r) && relationshipSourcesVisible(f, vault, storyId, chatId) && milestoneDerivedRecordIsCanonical(f, vault, storyId, chatId)) } : r),

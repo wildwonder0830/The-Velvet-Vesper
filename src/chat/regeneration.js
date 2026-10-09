@@ -108,6 +108,7 @@ export function prepareVaultRegeneration(vault,targetMessageId){
  // collections. Repeat to a fixed point, without touching the caller's vault.
  let size;
  do{size=unavailableCount();const result={};for(const [key,value] of Object.entries(next))result[key]=clean(value,{},key);next=result;}while(unavailableCount()!==size);
+ for(const story of next.stories){if(story.personaBinding)for(const owner of story.personaBinding.history)owner.messageIds=owner.messageIds.filter(id=>next.messages.some(m=>m.id===id&&m.storyId===story.id));}
  next=reconcilePhoneDependencies(next,{historicalBase:vault});
  requireValidBackup(validateVesperBackup(next),'regeneration');
  return {vault:next,targetMessageId,storyId:target.storyId,chatId:target.chatId,
