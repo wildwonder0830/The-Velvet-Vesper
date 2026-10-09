@@ -449,14 +449,7 @@ async function generateMyTurnDraft(){
   try{
     const preferenceLines=vault.preferenceLines?.length?vault.preferenceLines:seedDefaultGreenLines();
     const instruction=`[OOC TOOL — MY TURN: Draft ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s next possible roleplay turn for the user to review and edit. Write ONLY ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s proposed turn, in her established voice and consistent with current canon and scene context. Do not write any other character's dialogue, actions, thoughts, or reactions. Do not advance the scene beyond ${vault.personas.find(p=>p.id===activePersonaId(story))?.name||"the protagonist"}'s proposed response. This is a draft only and must not be treated as sent canon until the user submits it.]`;
-    let result;
-    try{
-      result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
-    }catch(error){
-      if(error?.name==="AbortError")throw error;
-      showStatus("Provider hiccup. Retrying your draft once…","working");
-      result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
-    }
+    const result=await runTurn({vault,storyId:story.id,chatId:chat.id,model,preferenceLines,storySettings:story.settings||{},oocInstruction:instruction,personaDraft:true,temperature:story.settings?.temperature??0.9,maxTokens:story.settings?.maxTokens??1200,signal:activeGenerationController.signal});
     recordTurnUsage(result,{storyId:story.id,chatId:chat.id,model});await saveAppVault(db,vault);
     if(result.blocked||!result.validation?.ok||!result.text?.trim())throw new Error("Vesper couldn't produce a usable draft.");
     if(activeStoryId!==story.id||activeChatId!==chat.id||input.value!==prior){showStatus("Draft request finished. Your current draft was preserved.","notice");return;}
