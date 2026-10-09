@@ -1,3 +1,4 @@
+import { messageSpeakerLabel } from "./ui/message-speaker.js";
 import { prepareAssistantEdit, originalAssistantText } from "./chat/message-edit.js";
 import { createBackupFile, shareBackup, downloadBackupFile, readBackupFile, canShareBackup, isIOSBackupEnvironment } from "./backup/backup-transfer.js";
 import { createStoryPhone } from "./ui/story-phone.js";
@@ -761,6 +762,7 @@ function appendStoryText(node,text){
 }
 function renderMessage(node,message){
   node.replaceChildren();
+  const speaker=document.createElement("small");speaker.className="message-speaker";speaker.textContent=messageSpeakerLabel(vault,message);node.append(speaker);
   const text=String(message.text||"");
   appendStoryText(node,text);
   if(message.role==="user"){

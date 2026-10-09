@@ -158,3 +158,5 @@
 #assistantEditPanel .settings-card{max-height:90vh;max-height:90dvh;overflow:auto;display:grid;gap:12px}
 #assistantEditPanel textarea{display:block;width:100%;height:45vh;height:45dvh;min-height:120px;resize:vertical;background:#0b0809;color:var(--ivory);border:1px solid #4a202b;border-radius:12px;padding:12px;font-family:inherit;font-size:16px;line-height:1.5}
 #assistantEditPanel button{min-height:44px}
+
+.message-speaker{display:block;margin-bottom:8px;font-size:.8rem;font-weight:600;line-height:1.4;color:inherit;overflow-wrap:anywhere}

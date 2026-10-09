@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { messageSpeakerLabel } from '../src/ui/message-speaker.js';
+const vault={stories:[{id:'s',personaId:'p',characterIds:['a','b'],primaryCharacterId:'a'}],personas:[{id:'p',name:'Synthetic Persona'}],characters:[{id:'a',name:'Character A'},{id:'b',name:'Character B'},{id:'foreign',name:'Foreign Character'}],chats:[{id:'c',storyId:'s'},{id:'private',storyId:'s',characterIds:['b']} ]};
+test('user bubble uses its story persona without modifying data',()=>{const before=structuredClone(vault);assert.equal(messageSpeakerLabel(vault,{storyId:'s',chatId:'c',role:'user'}),'Synthetic Persona');assert.deepEqual(vault,before);});
+test('explicit assistant speaker uses a story-owned identity',()=>assert.equal(messageSpeakerLabel(vault,{storyId:'s',chatId:'c',role:'assistant',characterId:'b'}),'Character B'));
+test('unattributed ensemble includes all applicable names',()=>assert.equal(messageSpeakerLabel(vault,{storyId:'s',chatId:'c',role:'assistant'}),'Character A · Character B'));
+test('chat cast constrains story cast',()=>assert.equal(messageSpeakerLabel(vault,{storyId:'s',chatId:'private',role:'assistant'}),'Character B'));
+test('foreign explicit speaker cannot leak into label',()=>assert.equal(messageSpeakerLabel(vault,{storyId:'s',chatId:'c',role:'assistant',speakerId:'foreign'}),'Vesper'));
+test('multiple explicit speakers remain distinct',()=>assert.equal(messageSpeakerLabel(vault,{storyId:'s',chatId:'c',role:'assistant',speakerIds:['b','a','b']}),'Character B · Character A'));
+test('unknown story does not fall back to global identities',()=>assert.equal(messageSpeakerLabel(vault,{storyId:'other',role:'user',personaId:'p'}),'You'));
+test('names remain text; display labels do not reinterpret content',()=>{const v=structuredClone(vault);v.personas[0].name='<img src=x onerror=alert(1)>';assert.equal(messageSpeakerLabel(v,{storyId:'s',role:'user'}),v.personas[0].name);});
+test('switching stories resolves each independent persona and cast',()=>{const v=structuredClone(vault);v.stories.push({id:'other',personaId:'p2',characterIds:['foreign']});v.personas.push({id:'p2',name:'Other Persona',storyId:'other'});v.chats.push({id:'other-chat',storyId:'other'});assert.equal(messageSpeakerLabel(v,{storyId:'other',chatId:'other-chat',role:'user'}),'Other Persona');assert.equal(messageSpeakerLabel(v,{storyId:'other',chatId:'other-chat',role:'assistant'}),'Foreign Character');assert.equal(messageSpeakerLabel(v,{storyId:'s',chatId:'c',role:'user'}),'Synthetic Persona');});
