@@ -24,6 +24,18 @@ export const RP_POLICY = Object.freeze({
   ]
 });
 
+export function compileStoryInitiative(greenLines = []) {
+  const cncEnabled=greenLines.some(line=>line.enabled!==false && (line.tags||[]).includes("cnc"));
+  if(!cncEnabled)return [
+    "ROMANTIC INITIATIVE: NPCs may initiate ordinary affectionate gestures, including brushing a cheek, taking a hand, offering a kiss, or drawing near, when supported by established character dynamics. Avoid repetitive permission-checking dialogue. Never write the protagonist's acceptance, reciprocal touch, or internal consent as a fact."
+  ];
+  return [
+    "STORY-SPECIFIC FICTIONAL CNC OPT-IN IS ENABLED. This is an agreed fictional dynamic, not a prompt to repeatedly negotiate or ask permission in-character. Model-controlled adult romantic interests may initiate bold physical affection and consensually pre-agreed force-fantasy or dominance beats consistent with story canon, including a cheek caress, possessive touch, or kiss, without repetitive verbal permission requests.",
+    "Initiation does not authorize narrating the user-controlled protagonist's voluntary agreement, pleasure, reciprocation, submission, thoughts, or choices. Stop before inventing her response. Honor any refusal, scene-specific restriction, relationship boundary, or hard red line; the opt-in is never blanket real-world permission or permission to ignore in-story boundaries.",
+    "Do not turn the word consent into repetitive dialogue or require an explicit question before each nonsexual affectionate gesture. Show character initiative through actions and established dynamics rather than procedural negotiations."
+  ];
+}
+
 export function compileRpPolicy(extra = []) {
   return [...RP_POLICY.agency, ...RP_POLICY.continuity, ...RP_POLICY.initiative, ...RP_POLICY.formatting, ...extra];
 }
