@@ -18,7 +18,26 @@ const PASSIVE_HANDOFF_PATTERNS = [
 const PRIVATE_AUTHORSHIP_CONTEXT = /\b(?:notes?|journal|diary|entries?|fantas(?:y|ies)|wish\s*list|private\s*list|drafts?|saved\s*(?:messages?|entries?)|app\s*(?:notes?|entries?))\b/i;
 const INVENTED_PERSONA_PRIVATE_VOICE = /(?:^|\n)\s*(?:[*_>\-\s]*\d+[.)]?\s*)?(?:[*_]?\s*)?(?:I\s+(?:want|need|wish|imagine|love|like)|Want\s+(?:him|her|them|to|the)|Need\s+(?:him|her|them|to|the)|I(?:'|’)m\s+(?:his|hers|theirs)|Make\s+me\b)/im;
 
-export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null, characters = [] }) {
+function findPrivateImmortalityLeak(text, persona, knowledge = []) {
+  const profile = JSON.stringify(persona?.profile || {});
+  if (!/immortal|centur(?:y|ies)|thousand.year|millenni|\b3000\b/i.test(profile)) return [];
+  // The knowledge record must explicitly establish Jessica's awareness, not just
+  // mention Jessica and the protagonist in unrelated story facts.
+  const jessicaKnows = knowledge.some(k => {
+    const fact = JSON.stringify(k);
+    return /Jessica/i.test(fact) && /(?:knows|learned|discovered|was told|revealed|confessed|aware|disclosed)/i.test(fact)
+      && /immortal|true age|three thousand|3000|centur|supernatural|species/i.test(fact);
+  });
+  if (jessicaKnows) return [];
+  const output = String(text || "");
+  // Restrict rejection to clear Jessica-attributed dialogue or knowledge;
+  // narrative omniscience alone must not be treated as her spoken admission.
+  const dialogue = /(?:Jessica(?:\s+(?:said|asked|laughed|murmured|whispered|announced|joked|teased|called|declared|replied|giggled))?[^\n]{0,160}["“][^"”\n]{0,260}(?:immortal|centur(?:y|ies)|three thousand|3000)[^"”\n]*["”])|(?:["“][^"”\n]{0,180}(?:immortal (?:best )?friend|best friend[^"”\n]{0,30}immortal|(?:first couple|several) centur(?:y|ies))[^"”\n]*["”][^\n]{0,100}Jessica)/i;
+  const unquotedAttribution = /Jessica[^.\n]{0,130}(?:immortal (?:best )?friend|(?:best )?friend[^.\n]{0,45}immortal|Amanda[^.\n]{0,45}(?:immortal|centur(?:y|ies)))/i;
+  if (!dialogue.test(output) && !unquotedAttribution.test(output)) return [];
+  return [{ type: "npc-private-knowledge", severity: "block", message: "Jessica revealed or referred to the protagonist's secret immortality without confirmed character-specific evidence that she knows. Preserve Jessica's ignorance and rewrite her dialogue." }];
+}
+export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null, characters = [], knowledge = [] }) {
   const issues = roleplayMetaIssues(text);
   if (!String(text || "").trim()) {
     issues.push({
@@ -29,6 +48,7 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
   }
   for (const violation of findHardRuleViolations(text)) issues.push({ type: "hard-rule", severity: "block", ...violation });
   for (const violation of findSexualRedLineViolations(text)) issues.push({ type: "sexual-red-line", severity: "block", ...violation });
+  if (!personaDraft) issues.push(...findPrivateImmortalityLeak(text, persona, knowledge));
 
   for (const term of forbiddenTerms) {
     if (term && String(text).toLowerCase().includes(String(term).toLowerCase())) {

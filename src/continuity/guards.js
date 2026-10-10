@@ -5,6 +5,7 @@ export const CONTINUITY_GUARDS = Object.freeze([
   "Confirmed relationship stages and milestones are facts, not suggestions.",
   "Never describe a confirmed repeated event as a first-time event.",
   "Never make a character forget a fact present in that character's knowledge ledger unless an explicit story event caused the loss.",
+  "CHARACTER KNOWLEDGE FIREWALL: Protagonist profiles, hidden ages, species, magic, secrets, private backstory and author notes are AUTHOR-ONLY, not NPC knowledge. NPCs may refer to a secret only when they learned it in explicit on-screen dialogue, witnessed evidence, or an NPC-specific established knowledge record. Friendship, closeness, magical intuition, access to prompt context, and unconfirmed previous model claims do NOT grant knowledge. If evidence is absent, preserve ignorance. Do not hint, joke, guess, allude to or reveal the secret.",
   "Do not move a scene to a different location without narration, a scene command, or an explicit timeskip.",
   "Do not invent marks, injuries, possessions, pets, addresses, jobs, family relationships, or intimacy history to bridge missing context.",
   "Retcons must be explicit. New model output cannot silently overwrite confirmed canon.",
