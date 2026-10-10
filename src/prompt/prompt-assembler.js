@@ -5,7 +5,7 @@ import { personaModelVault, protagonistDirective, messagePersonaId } from "../pe
 import { authoritativeReplyContext, projectEditedContext } from "../chat/message-edit.js";
 import { buildPhoneContext } from "../phone/phone-context.js";
 import { buildStoryContext } from "./context-builder.js";
-import { compileRpPolicy } from "./rp-policy.js";
+import { compileRpPolicy, compileStoryInitiative } from "./rp-policy.js";
 import { compileSexualRedLines } from "../rules/sexual-red-lines.js";
 import { compileGreenLines } from "../rules/preference-lines.js";
 import { continuityPrompt } from "../continuity/guards.js";
@@ -31,7 +31,7 @@ export function assemblePrompt({ vault, storyId, chatId, preferenceLines = [], s
   const mateBond=relationship?.stage==="mated"||Boolean(validatedBond);
   const continuity=continuityPrompt({relationship,milestones:context.milestones,facts:context.memory.filter(m=>m.kind==="canon"),knowledge:context.knowledge,vault,storyId,chatId});
   const assembled={precedence:["hardRules","oocInstruction","sexualRedLines","protagonistIdentity","authoritativeEdits","storySettings","agencyAndRpPolicy","canonAndContinuity","mateBondCanon","sceneState","characters","relationship","lore","memory","recentMessages","style"],
-    hardRules:context.hardRules,story:Object.fromEntries(Object.entries(context.story).filter(([key])=>key!=="phone")),oocInstruction:String(oocInstruction||"").trim(),sexualRedLines:compileSexualRedLines(),greenLines:compileGreenLines(preferenceLines,storySettings),storySettings,agencyAndRpPolicy:compileRpPolicy(),canonAndContinuity:continuity,mateBondCanon:mateBond?{...compileMateBondPrompt(),participantIds:validatedBond?.participants||relationship?.participantIds||[]}:null,sceneState:context.sceneState,persona:context.persona,characters:context.characters,relationship,milestones:context.milestones,lore:context.lore,memory:context.memory,recentMessages};
+    hardRules:context.hardRules,story:Object.fromEntries(Object.entries(context.story).filter(([key])=>key!=="phone")),oocInstruction:String(oocInstruction||"").trim(),sexualRedLines:compileSexualRedLines(),greenLines:compileGreenLines(preferenceLines,storySettings),storySettings,agencyAndRpPolicy:compileRpPolicy(compileStoryInitiative(compileGreenLines(preferenceLines,storySettings))),canonAndContinuity:continuity,mateBondCanon:mateBond?{...compileMateBondPrompt(),participantIds:validatedBond?.participants||relationship?.participantIds||[]}:null,sceneState:context.sceneState,persona:context.persona,characters:context.characters,relationship,milestones:context.milestones,lore:context.lore,memory:context.memory,recentMessages};
   const phoneContinuity=buildPhoneContext(phoneVault,{storyId,chatId,respondingCharacterIds:context.characters.map(c=>c.id)});
   if(phoneContinuity.length)assembled.phoneContinuity=phoneContinuity;
   if(edits)assembled.authoritativeEdits=edits;
