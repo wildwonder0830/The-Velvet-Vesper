@@ -131,7 +131,7 @@ function sexualBoundaryIssues(result){return (result?.validation?.issues||[]).fi
 function canReviewBlockedReply(result){
   const issues=result?.validation?.issues||[];
   const reviewable=issues.length>0&&issues.every(issue=>["sexual-red-line","incomplete-output"].includes(issue.type));
-  return Boolean(!roleplayMetaIssues(result?.blockedText||result?.text).length&&result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length&&reviewable);
+  return Boolean(!roleplayMetaIssues(result?.blockedText||result?.text).length&&result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&reviewable);
 }
 function closeBlockedReplyReview(){pendingBlockedReview=null;const panel=$("blockedReplyPanel");if(panel)panel.hidden=true;}
 function offerBlockedReplyReview({result,onAccept,onReject}){
@@ -141,7 +141,7 @@ function offerBlockedReplyReview({result,onAccept,onReject}){
   pendingBlockedReview={result,onAccept,onReject};
   const truncated=(result.validation?.issues||[]).some(issue=>issue.type==="incomplete-output");
   $("blockedReplyReason").textContent=truncated
-    ?"Vesper flagged: "+terms.join(" · ")+". The provider also truncated this reply. Review the visible text, but only a complete reply may be accepted."
+    ?(terms.length?"Vesper flagged: "+terms.join(" · ")+". ":"")+"The provider truncated the reply at the output limit. This is an incomplete preview, not a finished response. Increasing the story's Max output tokens (for example, from 1200 to 1500) may help."
     :"Vesper flagged: "+terms.join(" · ");
   $("blockedReplyPreview").textContent=String(result.blockedText||result.text||"").trim();
   $("blockedReplyAccept").disabled=truncated;
