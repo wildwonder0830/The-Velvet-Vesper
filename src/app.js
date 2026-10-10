@@ -9,7 +9,7 @@ import {activePersonaId,storyPersonaIds} from './personas/persona-store.js';
 import {mountPersonas} from './ui/personas.js';
 import {scanMilestoneEvents,confirmMilestoneEvent,milestonePresentation} from './milestones/events.js';
 import { messageSpeakerLabel } from "./ui/message-speaker.js";
-import { prepareAssistantEdit, originalAssistantText } from "./chat/message-edit.js";
+import { prepareAssistantEdit, prepareUserEdit, originalAssistantText } from "./chat/message-edit.js";
 import { createBackupFile, shareBackup, downloadBackupFile, readBackupFile, canShareBackup, isIOSBackupEnvironment } from "./backup/backup-transfer.js";
 import { createStoryPhone } from "./ui/story-phone.js";
 import { appendPhoneMessage, markPhoneThreadRead } from "./phone/phone-state.js";
@@ -709,8 +709,13 @@ async function editUserMessage(message){
   const next=window.prompt("Edit your post",String(message.text||""));
   if(next===null)return;
   const text=next.trim();if(!text||text===String(message.text||"").trim())return;
-  message.text=text;message.editedAt=new Date().toISOString();vault.updatedAt=message.editedAt;
-  await saveAppVault(db,vault);renderStory(message.storyId,message.chatId);showStatus("Post edited. Vesper will use the corrected version from now on.","notice");
+  try {
+    const next=prepareUserEdit(vault,{messageId:message.id,storyId:message.storyId,chatId:message.chatId,text});
+    if(!next)return;
+    vault=await saveAppVault(db,next,{expectedRevision:vault.storageRevision});
+    renderStory(message.storyId,message.chatId);
+    showStatus("Post corrected. Its previous wording is excluded from model context, including stale derived facts. Regenerate to use the correction.","notice");
+  } catch(error) { showStatus(`Post edit failed: ${error.message}`,"error"); }
 }
 async function deleteMessageBranch(message){
   if(sending){showStatus("Wait for Vesper to finish writing before deleting a post.","notice");return;}
