@@ -37,7 +37,14 @@ function findPrivateImmortalityLeak(text, persona, knowledge = []) {
   if (!dialogue.test(output) && !unquotedAttribution.test(output)) return [];
   return [{ type: "npc-private-knowledge", severity: "block", message: "Jessica revealed or referred to the protagonist's secret immortality without confirmed character-specific evidence that she knows. Preserve Jessica's ignorance and rewrite her dialogue." }];
 }
-export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null, characters = [], knowledge = [] }) {
+function repetitivePermissionLoop(text) {
+  const output=String(text||"");
+  const asks=output.match(/(?:may i|can i|do i have (?:your )?permission to|is it okay if i|would you let me|i need (?:your )?(?:explicit )?consent (?:to|before)|i need (?:you to say )?yes (?:before|to))\s+(?:[^.!?\n]{0,65})/gi)||[];
+  const tactile=asks.filter(x=>/touch|kiss|hold|caress|cheek|face|hand|waist|embrace|closer|ass|butt|lip/i.test(x));
+  const procedural=/(?:must|need to|have to)\s+(?:ask|obtain|get|wait for)\s+(?:your |her |his )?(?:explicit |verbal )?(?:permission|consent|yes)\s+(?:before|for|to)\s+(?:every|each|any)\s+(?:touch|kiss|gesture|caress|move)/i.test(output);
+  return tactile.length>=2 || procedural;
+}
+export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null, characters = [], knowledge = [], cncEnabled = false }) {
   const issues = roleplayMetaIssues(text);
   if (!String(text || "").trim()) {
     issues.push({
@@ -49,6 +56,7 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
   for (const violation of findHardRuleViolations(text)) issues.push({ type: "hard-rule", severity: "block", ...violation });
   for (const violation of findSexualRedLineViolations(text)) issues.push({ type: "sexual-red-line", severity: "block", ...violation });
   if (!personaDraft) issues.push(...findPrivateImmortalityLeak(text, persona, knowledge));
+  if (!personaDraft && cncEnabled && repetitivePermissionLoop(text)) issues.push({type:"permission-loop",severity:"block",message:"Repetitive verbal permission requests for ordinary romantic touch contradict this story's established initiative dynamic. Rewrite with natural initiation and responsiveness, without inventing the protagonist's reaction or ignoring any refusal or hard limit."});
 
   for (const term of forbiddenTerms) {
     if (term && String(text).toLowerCase().includes(String(term).toLowerCase())) {
