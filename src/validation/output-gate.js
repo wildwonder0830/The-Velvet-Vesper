@@ -33,7 +33,8 @@ function findPrivateImmortalityLeak(text, persona, knowledge = []) {
   // Restrict rejection to clear Jessica-attributed dialogue or knowledge;
   // narrative omniscience alone must not be treated as her spoken admission.
   const dialogue = /(?:Jessica(?:\s+(?:said|asked|laughed|murmured|whispered|announced|joked|teased|called|declared|replied|giggled))?[^\n]{0,160}["“][^"”\n]{0,260}(?:immortal|centur(?:y|ies)|three thousand|3000)[^"”\n]*["”])|(?:["“][^"”\n]{0,180}(?:immortal (?:best )?friend|best friend[^"”\n]{0,30}immortal|(?:first couple|several) centur(?:y|ies))[^"”\n]*["”][^\n]{0,100}Jessica)/i;
-  if (!dialogue.test(output)) return [];
+  const unquotedAttribution = /Jessica[^.\n]{0,130}(?:immortal (?:best )?friend|(?:best )?friend[^.\n]{0,45}immortal|Amanda[^.\n]{0,45}(?:immortal|centur(?:y|ies)))/i;
+  if (!dialogue.test(output) && !unquotedAttribution.test(output)) return [];
   return [{ type: "npc-private-knowledge", severity: "block", message: "Jessica revealed or referred to the protagonist's secret immortality without confirmed character-specific evidence that she knows. Preserve Jessica's ignorance and rewrite her dialogue." }];
 }
 export function validateModelOutput({ text, continuity = {}, forbiddenTerms = [], opening = false, personaDraft = false, priorUserText = "", persona = null, characters = [], knowledge = [] }) {
