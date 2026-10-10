@@ -91,6 +91,7 @@ export function validateModelOutput({ text, continuity = {}, forbiddenTerms = []
       if (pattern.test(text)) issues.push({ type: "passive-handoff", severity: "repair", message: "Model defaulted to passive waiting/hand-off." });
     }
   }
+  if (personaDraft && /(?:the correction landed|he listened[.,; ]+he adjusted|she filed that away[^\\n]{0,100}(?:evidence|data)|\\bmaster witch[.! ]+three thousand years[.! ]+i know things)/i.test(String(text))) issues.push({type:"persona-draft-editorial-leak",severity:"block",message:"My Turn leaked author-edit commentary or omniscient private knowledge into the protagonist's narration. Draft only an in-character response to saved in-world events."});
   if (personaDraft && /\b(?:understood|previous response|future responses|ready for the next turn|whenever you are|i(?:\'| a)?m ready)\b/i.test(String(text))) {
     issues.push({ type: "persona-draft-meta", severity: "repair", message: "My Turn returned meta/instructional chatter instead of Amanda\'s draft." });
   }
