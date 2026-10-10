@@ -128,15 +128,27 @@ function ensurePreferenceLines(){
 }
 function cncPreferenceLine(){return (vault.preferenceLines||[]).find(line=>(line.tags||[]).includes("cnc"))||null;}
 function sexualBoundaryIssues(result){return (result?.validation?.issues||[]).filter(issue=>issue.type==="sexual-red-line");}
-function canReviewBlockedReply(result){return Boolean(!roleplayMetaIssues(result?.blockedText||result?.text).length&&result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length&&result.validation.issues.every(issue=>issue.type==="sexual-red-line"));}
+function canReviewBlockedReply(result){
+  const issues=result?.validation?.issues||[];
+  const reviewable=issues.length>0&&issues.every(issue=>["sexual-red-line","incomplete-output"].includes(issue.type));
+  return Boolean(!roleplayMetaIssues(result?.blockedText||result?.text).length&&result?.blocked&&String(result?.blockedText||result?.text||"").trim()&&sexualBoundaryIssues(result).length&&reviewable);
+}
 function closeBlockedReplyReview(){pendingBlockedReview=null;const panel=$("blockedReplyPanel");if(panel)panel.hidden=true;}
 function offerBlockedReplyReview({result,onAccept,onReject}){
   if(!canReviewBlockedReply(result))return false;
   const issues=sexualBoundaryIssues(result);
   const terms=[...new Set(issues.map(issue=>issue.term||issue.message||"sexual red line"))];
   pendingBlockedReview={result,onAccept,onReject};
-  $("blockedReplyReason").textContent="Vesper flagged: "+terms.join(" · ");
+  const truncated=(result.validation?.issues||[]).some(issue=>issue.type==="incomplete-output");
+  $("blockedReplyReason").textContent=truncated
+    ?"Vesper flagged: "+terms.join(" · ")+". The provider also truncated this reply. Review the visible text, but only a complete reply may be accepted."
+    :"Vesper flagged: "+terms.join(" · ");
   $("blockedReplyPreview").textContent=String(result.blockedText||result.text||"").trim();
+  $("blockedReplyAccept").disabled=truncated;
+  $("blockedReplyAccept").hidden=truncated;
+  $("blockedReplyReviewNote").textContent=truncated
+    ?"This is an incomplete preview and cannot be saved. Reject & Regenerate requests a fresh reply; closing leaves your saved story unchanged."
+    :"Accepting saves this exact complete reply despite the sexual boundary flag. Rejecting discards it and requests a different reply.";
   $("blockedReplyPanel").hidden=false;
   return true;
 }
