@@ -27,7 +27,7 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
  const first=await sendOpenRouterChat({model,messages:filterMemoryForModel(messages,vault.memoryEntries,storyId),temperature,maxTokens,signal});let text=extractText(first);
  let continuity={mateBond:Boolean(assembled.mateBondCanon)};
  const priorUserText=[...assembled.recentMessages].reverse().find(m=>m.role==="user")?.text||"";
- let validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:assembled.persona,characters:assembled.characters,knowledge:assembled.canonAndContinuity?.knowledge||[]});
+ let validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:assembled.persona,characters:assembled.characters,knowledge:assembled.canonAndContinuity?.knowledge||[],cncEnabled:assembled.greenLines.some(line=>(line.tags||[]).includes("cnc"))});
  const usage=[first.usage||{}];
  if(first.choices?.[0]?.finish_reason==="length"){validation.issues.push({type:"incomplete-output",severity:"block",message:"The provider truncated this reply. No partial reply was saved; retry only by explicit action."});return {text,blockedText:text,validation:{...validation,ok:false},usage,repaired:false,blocked:true,issueTypes:[...new Set(validation.issues.map(i=>i.type))]};}
  if(director){if(!usage.length)usage.push({});const issues=validateDirectorOutput(text,assembled.persona);validation.issues.push(...issues);if(issues.length)validation.ok=false;
@@ -41,12 +41,12 @@ export async function runTurn({vault,storyId,chatId,model,preferenceLines=[],sto
    for(let attempt=0;attempt<repairAttempts;attempt++){
      const current=assemblePrompt({vault,storyId,chatId,preferenceLines,storySettings,oocInstruction,recipientIds});
      continuity={mateBond:Boolean(current.mateBondCanon)};
-     validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters,knowledge:current.canonAndContinuity?.knowledge||[]});
+     validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters,knowledge:current.canonAndContinuity?.knowledge||[],cncEnabled:current.greenLines.some(line=>(line.tags||[]).includes("cnc"))});
      const refreshed=toProviderMessages(current,personaDraft);
      const modeInstructions=personaDraft?[myTurnInstruction(vault,storyId,chatId,current)]:messages.slice(1+assembled.recentMessages.length);
      const repaired=await sendOpenRouterChat({model,messages:filterMemoryForModel([...refreshed,...modeInstructions,{role:"assistant",content:text},{role:"system",content:buildRepairInstruction(validation,{opening,personaDraft,persona:current.persona})}],vault.memoryEntries,storyId),temperature,maxTokens,signal});
      usage.push(repaired.usage||{});
-     text=extractText(repaired);if(repaired.choices?.[0]?.finish_reason==="length")return {text,blockedText:text,validation:{ok:false,needsRepair:false,issues:[{type:"incomplete-output",severity:"block",message:"The provider truncated the repair; no partial reply was saved."}]},usage,repaired:true,blocked:true,issueTypes:["incomplete-output"]};validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters,knowledge:current.canonAndContinuity?.knowledge||[]});
+     text=extractText(repaired);if(repaired.choices?.[0]?.finish_reason==="length")return {text,blockedText:text,validation:{ok:false,needsRepair:false,issues:[{type:"incomplete-output",severity:"block",message:"The provider truncated the repair; no partial reply was saved."}]},usage,repaired:true,blocked:true,issueTypes:["incomplete-output"]};validation=validate({text,continuity,opening,personaDraft,priorUserText,persona:current.persona,characters:current.characters,knowledge:current.canonAndContinuity?.knowledge||[],cncEnabled:current.greenLines.some(line=>(line.tags||[]).includes("cnc"))});
      if(validation.issues.some(i=>i.type==="roleplay-meta"))return {text,blockedText:text,validation,usage,repaired:true,blocked:true,issueTypes:[...new Set(validation.issues.map(i=>i.type))]};
      if(validation.ok&&!validation.needsRepair)return {text,validation,usage,repaired:true,blocked:false};
    }
