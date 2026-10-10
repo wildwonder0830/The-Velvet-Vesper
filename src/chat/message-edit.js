@@ -11,7 +11,8 @@ const referenceCollections = {
   sourceKnowledgeId:'knowledgeEntries',sourceKnowledgeIds:'knowledgeEntries'
 };
 const list = value => Array.isArray(value) ? value : [];
-const authority = message => message?.role === 'assistant' && message.editAuthority?.version === 1;
+const authority = message => ['assistant','user'].includes(message?.role) && message.editAuthority?.version === 1;
+const assistantAuthority = message => message?.role === 'assistant' && authority(message);
 const contextKeys = message => list(message?.editAuthority?.withheldContextKeys).filter(key => typeof key === 'string');
 const keyFor = path => JSON.stringify(path);
 function itemPath(path, value, index) {
@@ -79,11 +80,11 @@ export function assistantTextVersions(message) {
   return [message?.text,...(authority(message) ? list(message.editHistory).map(version=>version?.text) : [])].filter(text=>typeof text==='string');
 }
 export function historicalReplyVault(vault, asOf) {
-  if (!(vault.messages||[]).some(authority) && !(vault.personas||[]).some(p=>p.versions?.length)) return vault;
+  if (!(vault.messages||[]).some(assistantAuthority) && !(vault.personas||[]).some(p=>p.versions?.length)) return vault;
   return {...vault,personas:(vault.personas||[]).map(p=>{const versions=[...(p.versions||[]),{name:p.name,profile:p.profile,at:p.updatedAt||p.createdAt}].filter(v=>Number.isFinite(Date.parse(v.at))&&Date.parse(v.at)<=Date.parse(asOf)).sort((a,b)=>Date.parse(a.at)-Date.parse(b.at));const version=versions.at(-1)||p.versions?.[0];return version?{...p,name:version.name,profile:version.profile}:p;}),messages:vault.messages.map(message=>{
     const {editHistory,editAuthority,...source}=message;
     let text=message.text;
-    if(authority(message)){
+    if(assistantAuthority(message)){
       text=originalAssistantText(message) ?? message.text;
       const instant=Date.parse(asOf);
       if(Number.isFinite(instant))for(const version of [...list(editHistory),{text:message.text,editedAt:message.editedAt}]){
@@ -93,6 +94,19 @@ export function historicalReplyVault(vault, asOf) {
     }
     return {...source,text};
   })};
+}
+
+export function prepareUserEdit(vault,{messageId,storyId,chatId,text,now=new Date().toISOString()}) {
+  const original=vault.messages.find(m=>m.id===messageId&&m.storyId===storyId&&m.chatId===chatId&&m.role==='user');
+  if(!original)throw new Error('That post is no longer available.');
+  if(typeof text!=='string'||!text.trim())throw new Error('The post cannot be empty.');
+  const replacement=text.trim();
+  if(replacement===String(original.text||'').trim())return null;
+  const next=structuredClone(vault),message=next.messages.find(m=>m.id===messageId);
+  message.editHistory=[...list(original.editHistory),{text:original.text,editedAt:original.editedAt || null}];
+  message.editAuthority={version:1,withheldContextKeys:[...new Set([...contextKeys(original),...directStaleContext(vault,original,replacement)])]};
+  message.text=replacement;message.editedAt=now;next.updatedAt=now;
+  return next;
 }
 
 export function prepareAssistantEdit(vault,{messageId,storyId,chatId,text,now=new Date().toISOString()}) {
@@ -114,7 +128,7 @@ export function authoritativeReplyContext(vault, storyId, chatId) {
     .sort((a,b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
     .map(m => ({id:m.id,storyId:m.storyId,chatId:m.chatId,ordinal:m.ordinal,text:m.text,editedAt:m.editedAt,sourceMessageIds:[m.id]}));
   return messages.length ? {
-    rule:'These are user-authored corrections to saved replies in this conversation. Their current text is authoritative over conflicting earlier narration, summaries, memories, scene details or opening setup. Use the corrected facts even outside recent history. Never restore a superseded version or invent new events from an edit. Preserve chronology, unrelated canon, character identity, knowledge boundaries, hard limits, adult requirements and permissions.',
+    rule:'These are authoritative user corrections to saved posts and replies in this conversation. Their current text is authoritative over conflicting earlier narration, summaries, memories, scene details or opening setup. Use the corrected facts even outside recent history. Never restore a superseded version or invent new events from an edit. Preserve chronology, unrelated canon, character identity, knowledge boundaries, hard limits, adult requirements and permissions.',
     messages
   } : null;
 }
